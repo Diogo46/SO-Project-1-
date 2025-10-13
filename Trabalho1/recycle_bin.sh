@@ -28,10 +28,6 @@ NC='\033[0m' # No Color
 #################################################
 initialize_recyclebin() {
     if [ ! -d "$RECYCLE_BIN_DIR" ]; then
-
-        mkdir -p "$RECYCLE_BIN_DIR" && cd "$RECYCLE_BIN_DIR" || echo "Failed to create recycle bin directory"
-=======
->>>>>>> b183959442d3e51f9a002a36fec443063d29e24a
         mkdir -p "$FILES_DIR"
         touch "$METADATA_FILE"
         echo "# Recycle Bin Metadata" > "$METADATA_FILE"
@@ -40,11 +36,6 @@ initialize_recyclebin() {
         return 0
     fi
     return 0
-
-
-
-=======
->>>>>>> b183959442d3e51f9a002a36fec443063d29e24a
 }
 
 
