@@ -8,19 +8,17 @@
 # Description: Shell-based recycle bin system
 #########################################################################################
 
-
 # Global Configuration
 RECYCLE_BIN_DIR="$HOME/.recycle_bin"
 FILES_DIR="$RECYCLE_BIN_DIR/files"
 METADATA_FILE="$RECYCLE_BIN_DIR/metadata.db"
 CONFIG_FILE="$RECYCLE_BIN_DIR/config"
 
-# Color Codes 
+# Color codes for output (optional)
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
-
 
 #################################################
 # Function: initialize_recyclebin
@@ -63,11 +61,12 @@ generate_unique_id() {
 delete_file() {
     # TODO: Implement this function
     local file_path="$1"
+
     # Validate input
     if [ -z "$file_path" ]; then
         echo -e "${RED}Error: No file specified${NC}"
         return 1
-    fi  
+    fi
 
     # Check if file exists
     if [ ! -e "$file_path" ]; then
@@ -80,6 +79,7 @@ delete_file() {
     # Hint: Generate unique ID
     # Hint: Move file to FILES_DIR with unique ID
     # Hint: Add entry to metadata file
+
     echo "Delete function called with: $file_path"
     return 0
 }
@@ -111,10 +111,12 @@ list_recycled() {
 restore_file() {
     # TODO: Implement this function
     local file_id="$1"
+
     if [ -z "$file_id" ]; then
         echo -e "${RED}Error: No file ID specified${NC}"
         return 1
     fi
+
     # Your code here
     # Hint: Search metadata for matching ID
     # Hint: Get original path from metadata
@@ -164,18 +166,20 @@ search_recycled() {
 #################################################
 display_help() {
     cat << EOF
+
 Linux Recycle Bin - Usage Guide
 
 SYNOPSIS:
     $0 [OPTION] [ARGUMENTS]
 
 OPTIONS:
-    delete <file>      Move file/directory to recycle bin
-    list               List all items in recycle bin
-    restore <id>       Restore file by ID
-    search <pattern>   Search for files by name
-    empty              Empty recycle bin permanently
-    help               Display this help message
+
+    delete <file>           Move file/directory to recycle bin
+    list                    List all items in recycle bin
+    restore <id>            Restore file by ID
+    search <pattern>        Search for files by name
+    empty                   Empty recycle bin permanently
+    help                    Display this help message
 
 EXAMPLES:
     $0 delete myfile.txt
@@ -195,6 +199,7 @@ EOF
 # Returns: Exit code
 #################################################
 main() {
+
     # Initialize recycle bin
     initialize_recyclebin
 
