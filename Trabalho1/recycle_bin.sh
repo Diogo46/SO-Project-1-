@@ -175,21 +175,24 @@ list_recycled() {
         printf "%-10s | %-20s | %-19s | %-10s\n" "ID" "Name" "Deleted At" "Size"
         printf "%s\n" "---------------------------------------------------------------------"
 
-        tail -n +3 "$METADATA_FILE" | while IFS=',' read -r id name path date size type perms owner; do
+        while IFS=',' read -r id name path date size type perms owner; do
+            # Skip empty or header lines
+            [[ "$id" == "ID" || -z "$id" ]] && continue
+
             # Convert size to human-readable format
-            local human_size
-            human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
+            local human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
 
             printf "%-10s | %-20s | %-19s | %-10s\n" "${id:0:8}" "$name" "$date" "$human_size"
 
-            total_size=$((total_size + size))
-            count=$((count + 1))
-        done
+            ((total_size+=size))
+            ((count++))
+        done < <(tail -n +3 "$METADATA_FILE")
     else
         # ---------- DETAILED MODE ----------
-        tail -n +3 "$METADATA_FILE" | while IFS=',' read -r id name path date size type perms owner; do
-            local human_size
-            human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
+        while IFS=',' read -r id name path date size type perms owner; do
+            [[ "$id" == "ID" || -z "$id" ]] && continue
+
+            local human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
 
             echo "-----------------------------"
             echo "ID:          $id"
@@ -201,8 +204,8 @@ list_recycled() {
             echo "Permissions: $perms"
             echo "Owner:       $owner"
             echo
-            total_size=$((total_size + size))
-            count=$((count + 1))
+            ((total_size+=size))
+            ((count++))
         done
     fi
 
