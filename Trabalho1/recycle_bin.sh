@@ -219,6 +219,7 @@ list_recycled() {
     # Hint: Use printf for formatted table
     # Hint: Skip header line
     return 0
+    return 0
 }
 
 
@@ -236,11 +237,86 @@ restore_file() {
         return 1
     fi
     # Your code here
+
     # Hint: Search metadata for matching ID
+    if [ ! -f "$METADATA_FILE" ] || [ $(wc -l < "$METADATA_FILE") -le 2 ]; then
+        echo -e "${YELLOW}Recycle bin is empty or metadata file missing.${NC}"
+        return 1
+    fi
+
+    local entry=$(tail -n +3 "$METADATA_FILE" | grep -m 1 "$file_id")
+
+    if [ -z "$entry" ]; then
+        echo -e "${RED}Error: No matching entry found for '$file_id'${NC}"
+        return 1
+    fi
     # Hint: Get original path from metadata
+    IFS=',' read -r file_id original_name original_path deletion_date file_size file_type perms owner <<< "$entry"
+
+    local source_path="$FILES_DIR/$file_id"
+    local destination_path="$original_path/$original_name"
+
     # Hint: Check if original path exists
+    if [ ! -e "$source_path" ]; then
+        echo -e "${RED}Error: File not found in recycle bin storage (${source_path})${NC}"
+        return 1
+    fi
+
+    # Check if original directory still exists; if not, create it
+    if [ ! -d "$original_path" ]; then
+        echo -e "${YELLOW}Original directory missing. Creating: $original_path${NC}"
+        mkdir -p "$original_path" || {
+            echo -e "${RED}Error: Failed to create destination directory${NC}"
+            return 1
+        }
+    fi
+
+    # Handle conflicts (file already exists at destination)
+    if [ -e "$destination_path" ]; then
+        echo -e "${YELLOW}Conflict: File already exists at destination.${NC}"
+        echo "Choose an option:"
+        echo "1) Overwrite existing file"
+        echo "2) Restore with modified name (append timestamp)"
+        echo "3) Cancel restoration"
+        read -p "Enter choice [1-3]: " choice
+
+        case $choice in
+            1)
+                echo "Overwriting existing file..."
+                ;;
+            2)
+                local timestamp=$(date +%Y%m%d_%H%M%S)
+                destination_path="${original_path}/${original_name%.*}_${timestamp}.${original_name##*.}"
+                echo "Restoring as: $destination_path"
+                ;;
+            3)
+                echo "Restoration cancelled."
+                return 0
+                ;;
+            *)
+                echo -e "${RED}Invalid choice. Restoration cancelled.${NC}"
+                return 1
+                ;;
+        esac
+    fi
     # Hint: Move file back and restore permissions
+    mv "$source_path" "$destination_path" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}Error: Failed to move file to destination${NC}"
+        return 1
+    fi
+
+    # Restore original permissions
+    chmod "$perms" "$destination_path" 2>/dev/null
+
     # Hint: Remove entry from metadata
+    grep -v "^$file_id," "$METADATA_FILE" > "${METADATA_FILE}.tmp" && mv "${METADATA_FILE}.tmp" "$METADATA_FILE"
+
+    # Log operation 
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [RESTORE] Restored '$original_name' to '$destination_path'" >> "$RECYCLE_BIN_DIR/recyclebin.log"
+
+    echo -e "${GREEN}Successfully restored: ${NC}$original_name → $destination_path"
+
     return 0
 }
 
