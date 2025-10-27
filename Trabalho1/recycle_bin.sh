@@ -146,16 +146,12 @@ delete_file() {
 # Returns: 0 on success
 #################################################
 list_recycled() {
-    # TODO: Implement this function
     local detailed_mode=false
+    for arg in "$@"; do
+        [ "$arg" = "--detailed" ] && detailed_mode=true
+    done
 
-    # --- Check if the user passed the --detailed flag ---
-    if [ "$1" == "--detailed" ]; then
-        detailed_mode=true
-    fi
-
-    # --- Handle empty recycle bin ---
-    if [ ! -s "$METADATA_FILE" ] || [ $(wc -l < "$METADATA_FILE") -le 2 ]; then
+    if [ ! -s "$METADATA_FILE" ] || [ "$(wc -l < "$METADATA_FILE")" -le 2 ]; then
         echo "Recycle bin is empty."
         return 0
     fi
@@ -163,65 +159,53 @@ list_recycled() {
     echo "=== Recycle Bin Contents ==="
     echo
 
-
-    # Your code here
-    # Skip the header line and read entries 
-    # We'll use tail -n +3 because our metadata file has 2 header lines
     local total_size=0
     local count=0
 
-     if [ "$detailed_mode" = false ]; then
+    if ! $detailed_mode; then
         # ---------- NORMAL MODE ----------
-        printf "%-10s | %-20s | %-19s | %-10s\n" "ID" "Name" "Deleted At" "Size"
-        printf "%s\n" "---------------------------------------------------------------------"
+        printf "%-18s | %-20s | %-19s | %-10s\n" "ID" "Name" "Deleted At" "Size"
+        printf "%s\n" "--------------------------------------------------------------------------------"
 
         while IFS=',' read -r id name path date size type perms owner; do
-            # Skip empty or header lines
             [[ "$id" == "ID" || -z "$id" ]] && continue
+            local human_size
+            human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
 
-            # Convert size to human-readable format
-            local human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
+            printf "%-18s | %-20s | %-19s | %-10s\n" "${id:0:18}" "$name" "$date" "$human_size"
 
-            printf "%-10s | %-20s | %-19s | %-10s\n" "${id:0:8}" "$name" "$date" "$human_size"
-
-            ((total_size+=size))
-            ((count++))
+            total_size=$(( total_size + size ))
+            count=$(( count + 1 ))
         done < <(tail -n +3 "$METADATA_FILE")
     else
-        # ---------- DETAILED MODE ----------
+        # ---------- DETAILED (TABLE) MODE ----------
+        printf "%-18s | %-20s | %-40s | %-19s | %-10s | %-8s | %-10s | %-12s\n" \
+               "ID" "Name" "Path" "Deleted At" "Size" "Type" "Perms" "Owner"
+        printf "%s\n" "-----------------------------------------------------------------------------------------------------------------------------------------------------"
+
         while IFS=',' read -r id name path date size type perms owner; do
             [[ "$id" == "ID" || -z "$id" ]] && continue
+            local human_size
+            human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
+            local short_path
+            short_path=$(printf "%.40s" "$path")
 
-            local human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
+            printf "%-18s | %-20s | %-40s | %-19s | %-10s | %-8s | %-10s | %-12s\n" \
+                   "$id" "$name" "$short_path" "$date" "$human_size" "$type" "$perms" "$owner"
 
-            echo "-----------------------------"
-            echo "ID:          $id"
-            echo "Name:        $name"
-            echo "Path:        $path"
-            echo "Deleted At:  $date"
-            echo "Size:        $human_size"
-            echo "Type:        $type"
-            echo "Permissions: $perms"
-            echo "Owner:       $owner"
-            echo
-            ((total_size+=size))
-            ((count++))
-        done
+            total_size=$(( total_size + size ))
+            count=$(( count + 1 ))
+        done < <(tail -n +3 "$METADATA_FILE")
     fi
 
-    # --- Display totals ---
-    local total_human=$(numfmt --to=iec --suffix=B "$total_size" 2>/dev/null || echo "${total_size}B")
+    local total_human
+    total_human=$(numfmt --to=iec --suffix=B "$total_size" 2>/dev/null || echo "${total_size}B")
 
     echo
     echo "Total items: $count"
     echo "Total size:  $total_human"
-    # Hint: Read metadata file and format output
-    # Hint: Use printf for formatted table
-    # Hint: Skip header line
-    return 0
     return 0
 }
-
 
 #################################################
 # Function: restore_file
@@ -402,7 +386,8 @@ main() {
             delete_file "$@"
             ;;
         list)
-            list_recycled
+            shift
+            list_recycled "$@"
             ;;
         restore)
             restore_file "$2"
