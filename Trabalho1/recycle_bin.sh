@@ -145,12 +145,39 @@ delete_file() {
 # Parameters: None
 # Returns: 0 on success
 #################################################
+
 list_recycled() {
     local detailed_mode=false
+    local sort_option="none"
+
+    # Parse flags like --detailed and --sort
     for arg in "$@"; do
-        [ "$arg" = "--detailed" ] && detailed_mode=true
+        case "$arg" in
+            --detailed)
+                detailed_mode=true #shows full metadata
+                ;;
+            --sort=*)
+                sort_option="${arg#--sort=}" #extracts value after '=', (name, date, size)
+                ;;
+            *)
+                echo -e "${RED}Error: Unknown option '$arg'${NC}" #flag validation (if it's not name date or size -> error)
+                echo "Valid options: --detailed, --sort=name|date|size"
+                return 1
+                ;;
+        esac
     done
 
+    # make sure the sort option is valid 
+    case "$sort_option" in
+        none|name|date|size) ;; #valid options
+        *)
+            echo -e "${RED}Error: Invalid sort option '$sort_option'${NC}"
+            echo "Valid sort options: name, date, size"
+            return 1
+            ;;
+    esac
+
+    #if the file doesnt exist OR only has header rows -> nothing to show
     if [ ! -s "$METADATA_FILE" ] || [ "$(wc -l < "$METADATA_FILE")" -le 2 ]; then
         echo "Recycle bin is empty."
         return 0
@@ -159,51 +186,55 @@ list_recycled() {
     echo "=== Recycle Bin Contents ==="
     echo
 
+    # grab metadata entries (skips the 2 header lines)
+    local data
+    data=$(tail -n +3 "$METADATA_FILE")
+
+    # Apply sorting based on selected option
+    case "$sort_option" in
+        name)  data=$(echo "$data" | sort -t ',' -f -k2,2) ;;    # A to Z, case insensitive 
+        date)  data=$(echo "$data" | sort -t ',' -k4,4r) ;;      # newest first (desc)
+        size)  data=$(echo "$data" | sort -t ',' -k5,5nr) ;;     # biggest first (desc)
+    esac
+
     local total_size=0
     local count=0
 
     if ! $detailed_mode; then
-        # ---------- NORMAL MODE ----------
+        # basic table 
         printf "%-18s | %-20s | %-19s | %-10s\n" "ID" "Name" "Deleted At" "Size"
         printf "%s\n" "--------------------------------------------------------------------------------"
-
+        
+        # loops through each CSV row and prints what the info we need
         while IFS=',' read -r id name path date size type perms owner; do
-            [[ "$id" == "ID" || -z "$id" ]] && continue
-            local human_size
-            human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
-
+            [[ -z "$id" ]] && continue
+            local human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
             printf "%-18s | %-20s | %-19s | %-10s\n" "${id:0:18}" "$name" "$date" "$human_size"
 
             total_size=$(( total_size + size ))
             count=$(( count + 1 ))
-        done < <(tail -n +3 "$METADATA_FILE")
+        done <<< "$data"
     else
-        # ---------- DETAILED (TABLE) MODE ----------
+        # table for detailed mode
         printf "%-18s | %-20s | %-40s | %-19s | %-10s | %-8s | %-10s | %-12s\n" \
                "ID" "Name" "Path" "Deleted At" "Size" "Type" "Perms" "Owner"
         printf "%s\n" "-----------------------------------------------------------------------------------------------------------------------------------------------------"
-
+        
         while IFS=',' read -r id name path date size type perms owner; do
-            [[ "$id" == "ID" || -z "$id" ]] && continue
-            local human_size
-            human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
-            local short_path
-            short_path=$(printf "%.40s" "$path")
-
+            [[ -z "$id" ]] && continue
+            local human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
+            local short_path=$(printf "%.40s" "$path") #truncates long paths so table doesnt break
             printf "%-18s | %-20s | %-40s | %-19s | %-10s | %-8s | %-10s | %-12s\n" \
                    "$id" "$name" "$short_path" "$date" "$human_size" "$type" "$perms" "$owner"
 
             total_size=$(( total_size + size ))
             count=$(( count + 1 ))
-        done < <(tail -n +3 "$METADATA_FILE")
+        done <<< "$data"
     fi
-
-    local total_human
-    total_human=$(numfmt --to=iec --suffix=B "$total_size" 2>/dev/null || echo "${total_size}B")
 
     echo
     echo "Total items: $count"
-    echo "Total size:  $total_human"
+    echo "Total size:  $(numfmt --to=iec --suffix=B "$total_size" 2>/dev/null)"
     return 0
 }
 
@@ -387,7 +418,7 @@ main() {
             ;;
         list)
             shift
-            list_recycled "$@"
+            list_recycled "$@" ## updated main to check any argument for list_recycled
             ;;
         restore)
             restore_file "$2"
