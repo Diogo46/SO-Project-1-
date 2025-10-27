@@ -342,12 +342,67 @@ restore_file() {
 # Parameters: None
 # Returns: 0 on success
 #################################################
+
+# to improve: right now if you try empty bananas, and bananas doesnt exist, it will say "No matching ID found". But bananas isnt an ID, so it should
+# return something else -> now returns "No matching items found for 'INPUT'. Nothing deleted." // y/N both case insensitive // 
+
 empty_recyclebin() {
-    # TODO: Implement this function
-    # Your code here
-    # Hint: Ask for confirmation
-    # Hint: Delete all files in FILES_DIR
-    # Hint: Reset metadata file
+    local target_id="$1"
+    local pattern=""
+    local data
+
+    # Detect pattern mode
+    if [[ "$target_id" == --pattern=* ]]; then
+        pattern="${target_id#--pattern=}"
+        target_id=""
+    fi
+
+    # Load metadata entries (skip first 2 header lines)
+    data=$(tail -n +3 "$METADATA_FILE")
+
+    # If user passed an ID → try to match exactly by ID
+    if [[ -n "$target_id" ]]; then
+        local match=$(echo "$data" | grep -i "^$target_id," || true)
+        if [ -z "$match" ]; then
+            echo "No matching items found for '$target_id'. Nothing deleted."
+            return 0
+        fi
+        echo "The following item will be permanently deleted:"
+        echo "$match" | cut -d',' -f1,2,4
+        echo -n "Are you sure? (y/N): "
+    elif [[ -n "$pattern" ]]; then
+        # Pattern mode (case-insensitive)
+        local match=$(echo "$data" | grep -i "$pattern" || true)
+        if [ -z "$match" ]; then
+            echo "No matching items found for '$pattern'. Nothing deleted."
+            return 0
+        fi
+        echo "The following item(s) will be permanently deleted:"
+        echo "$match" | cut -d',' -f1,2,4
+        echo -n "Are you sure? (y/N): "
+    else
+        # Really delete everything only if NO args provided
+        echo -n "Are you sure you want to permanently delete ALL items in the recycle bin? (y/N): "
+        match="$data"  # everything
+    fi
+
+    read confirm
+    [[ "$confirm" != "y" && "$confirm" != "Y" ]] && echo "Operation canceled." && return 0
+
+    # Delete matched items
+    local total_size=0
+    local count=0
+    while IFS=',' read -r id name path date size type perms owner; do
+        rm -rf "$FILES_DIR/$id"
+        total_size=$(( total_size + size ))
+        count=$(( count + 1 ))
+    done <<< "$match"
+
+    # Rebuild metadata, removing deleted entries
+    grep -v -f <(echo "$match" | cut -d',' -f1) "$METADATA_FILE" > "${METADATA_FILE}.tmp"
+    mv "${METADATA_FILE}.tmp" "$METADATA_FILE"
+
+    echo "Deleted $count items ($(numfmt --to=iec --suffix=B $total_size))"
     return 0
 }
 
@@ -427,7 +482,8 @@ main() {
             search_recycled "$2"
             ;;
         empty)
-            empty_recyclebin
+        shift
+            empty_recyclebin "$@" #any argument after empty is passed correctly
             ;;
         help|--help|-h)
             display_help
