@@ -40,11 +40,81 @@ This creates:
 ## Usage
 [How to use with examples]
 
+Each operation is executed through the main script recycle_bin.sh.
+
+1. Delete file(s)
+
+Moves one or more files or directories to the recycle bin.
+./recycle_bin.sh delete <file1> <file2> ...
+
+
+2. List contents
+
+Displays all items currently in the recycle bin (normal mode)
+./recycle_bin.sh list
+
+There are two extra modes we can use: detailed mode (--detailed) and sort mode (--sort)
+Detailed mode shows, alongside the same information from normal mode, path, type, perms and owner.
+All of the files in the recycle in can now be sorted using sort. The user is able to sort from date and size (descendent order) and name (A to Z and case insensitive). 
+
+./recycle_bin.sh list --sort=size
+./recycle_bin.sh list --sort=date
+./recycle_bin.sh list --sort=name
+
+Naturally, you can still add the --detailed to have a detailed, sorted list. 
+
+If the recyble bin is empty and you try to list it, it will return "Recycle bin is empty". 
+
+There are two main validation steps throughout the function's usage: 
+- if you try to run a flag that's not --detailed or --sort, you will get an error message and then it will show you what the valid options are;
+- if you try to sort by anything other than size, name or date, you will get the same message;
+
+
+3. List contents (detailed mode)
+./recycle_bin.sh list --detailed
+
+
+4. Restore file
+
+Restores a deleted file to its original location (by ID or filename).
+./recycle_bin.sh restore <file_id or filename>
+
+
+5. Help
+
+Shows usage instructions and a summary of all available commands.
+./recycle_bin.sh help
+
+
 ---
 
 ## Features
 - [List of implemented features]
 - [Mark optional features]
+
+Modular design (each action handled by its own function)
+
+Safe deletion system — files are moved, not permanently erased
+
+Metadata tracking (stored in metadata.db)
+
+Recycle bin listing with formatted table output
+
+Detailed view for full metadata inspection (--detailed)
+
+File restoration:
+
+Restores files to their original path
+
+Recreates missing directories automatically
+
+Handles naming conflicts (overwrite, rename, or cancel)
+
+Restores original file permissions and ownership
+
+Logging system for every action (recyclebin.log)
+
+Basic error handling (invalid options, missing files, permission issues, etc.)
 
 ---
 
