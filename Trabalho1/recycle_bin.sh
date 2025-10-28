@@ -414,13 +414,97 @@ empty_recyclebin() {
 # Parameters: $1 - search pattern
 # Returns: 0 on success
 #################################################
+# search_recycled features and how to use -> ./recycle_bin.sh search report (shows report in bin)
+# date range search -> ./recycle_bin.sh search --date-from=2025-10-20 --date-to=2025-10-30 (date is in YYMMDD format)
+# we can combine both name AND date in a single search, for more accurate results ./recycle_bin.sh search report --date-from=2025-10-20 --date-to=2025-10-27 #DONE
+# supports --detailed #DONE
+# allows single ended ranges (--date-from=XX will show everything from that date forward, --date-to=XX will show everything up until that point) ##DONE
+# dates are inclusive: from 2025-10-20 includes the 20th
+# the initial function is searching for FULL filename (so if test.txt is in bin, if you search for test you wont get it)
+# let's make it search for the name WITHOUT the file extension, for easier handling ## DONE
+
 search_recycled() {
-    # TODO: Implement this function
-    local pattern="$1"
-    # Your code here
-    # Hint: Use grep to search metadata
+    local name_pattern=""
+    local date_from=""
+    local date_to=""
+    local detailed_mode=false
+
+    for arg in "$@"; do
+        case "$arg" in
+            --date-from=*)
+                date_from="${arg#--date-from=}" ;;
+            --date-to=*)
+                date_to="${arg#--date-to=}" ;;
+            --detailed)
+                detailed_mode=true ;;
+            *)
+                # if not a flag, assume filename search term (case insensitive string match)
+                name_pattern="$arg" ;;
+        esac
+    done
+
+    # if nothing is specified, show no search criteria
+    if [[ -z "$name_pattern" && -z "$date_from" && -z "$date_to" ]]; then
+        echo "No search criteria provided."
+        return 0
+    fi
+
+    local data=$(tail -n +3 "$METADATA_FILE")
+
+    # the provided pattern should be shown in ALL : searching "test" matches test.txt, mytest.pdf, fileTEST.doc
+    if [[ -n "$name_pattern" ]]; then
+        local filtered=""
+        while IFS=',' read -r id name path date size type perms owner; do
+            # lowercase both for strict substring, case-insensitive
+            if [[ "${name,,}" == *"${name_pattern,,}"* ]]; then
+                filtered+="$id,$name,$path,$date,$size,$type,$perms,$owner"$'\n'
+            fi
+        done <<< "$data"
+        data="$filtered"
+    fi
+
+    # Date filtering — inclusive (>= from, <= to)
+    if [[ -n "$date_from" ]]; then
+        data=$(echo "$data" | awk -F',' -v df="$date_from" '$4 >= df')
+    fi
+    if [[ -n "$date_to" ]]; then
+        data=$(echo "$data" | awk -F',' -v dt="$date_to" '$4 <= dt')
+    fi
+
+    # If nothing left after filtering → exit
+    if [[ -z "$data" ]]; then
+        echo "No matching items found for '${name_pattern:-your criteria}'."
+        return 0
+    fi
+
+    echo "=== Search Results ==="
+    echo
+
+    if ! $detailed_mode; then
+        printf "%-18s | %-20s | %-19s | %-10s\n" "ID" "Name" "Deleted At" "Size"
+        printf "%s\n" "--------------------------------------------------------------------------------"
+        while IFS=',' read -r id name path date size type perms owner; do
+            [[ -z "$id" ]] && continue
+            local human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
+            printf "%-18s | %-20s | %-19s | %-10s\n" "${id:0:18}" "$name" "$date" "$human_size"
+        done <<< "$data"
+    else
+        printf "%-18s | %-20s | %-40s | %-19s | %-10s | %-8s | %-10s | %-12s\n" \
+               "ID" "Name" "Path" "Deleted At" "Size" "Type" "Perms" "Owner"
+        printf "%s\n" "-----------------------------------------------------------------------------------------------------------------------------------------------------"
+        while IFS=',' read -r id name path date size type perms owner; do
+            [[ -z "$id" ]] && continue
+            local human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
+            local short_path=$(printf "%.40s" "$path")
+            printf "%-18s | %-20s | %-40s | %-19s | %-10s | %-8s | %-10s | %-12s\n" \
+                   "$id" "$name" "$short_path" "$date" "$human_size" "$type" "$perms" "$owner"
+        done <<< "$data"
+    fi
+
     return 0
 }
+
+
 
 
 #################################################
@@ -480,11 +564,12 @@ main() {
             restore_file "$2"
             ;;
         search)
-            search_recycled "$2"
+            shift
+            search_recycled "$@" ## updated to pass all arguments 
             ;;
         empty)
         shift
-            empty_recyclebin "$@" #any argument after empty is passed correctly
+            empty_recyclebin "$@" #  all arguments are passed correctly
             ;;
         help|--help|-h)
             display_help
