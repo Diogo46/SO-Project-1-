@@ -364,7 +364,7 @@ empty_recyclebin() {
     # load metadata entries (skip first 2 header lines)
     data=$(tail -n +3 "$METADATA_FILE")
 
-    # if user passed an ID, then tries to match exactly by ID
+    # if user passed an ID, try exact match
     if [[ -n "$target_id" ]]; then
         local match=$(echo "$data" | grep -i "^$target_id," || true)
         if [ -z "$match" ]; then
@@ -375,7 +375,6 @@ empty_recyclebin() {
         echo "$match" | cut -d',' -f1,2,4
         echo -n "Are you sure? (y/N): "
     elif [[ -n "$pattern" ]]; then
-        # checks for the pattern (case insensitive)
         local match=$(echo "$data" | grep -i "$pattern" || true)
         if [ -z "$match" ]; then
             echo "No matching items found for '$pattern'. Nothing deleted."
@@ -385,30 +384,36 @@ empty_recyclebin() {
         echo "$match" | cut -d',' -f1,2,4
         echo -n "Are you sure? (y/N): "
     else
-        # only deletes everything  if NO arguments were provided, so ./recycle_bin.sh empty
         echo -n "Are you sure you want to permanently delete ALL items in the recycle bin? (y/N): "
-        match="$data"  # everything
+        match="$data"
     fi
 
     read confirm
     [[ "$confirm" != "y" && "$confirm" != "Y" ]] && echo "Operation canceled." && return 0
 
-    # deletes matched items
     local total_size=0
     local count=0
+
+    echo "Deleted items:"
     while IFS=',' read -r id name path date size type perms owner; do
         rm -rf "$FILES_DIR/$id"
         total_size=$(( total_size + size ))
         count=$(( count + 1 ))
+
+        echo " - $name (ID: $id)"   # Human-readable summary
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [EMPTY] Deleted '$name' (ID: $id)" >> "$RECYCLE_BIN_DIR/recyclebin.log"  # LOG
     done <<< "$match"
 
-    # rebuilds metadata, removing deleted entries
+    # blank line before final summary
+    echo
+
     grep -v -f <(echo "$match" | cut -d',' -f1) "$METADATA_FILE" > "${METADATA_FILE}.tmp"
     mv "${METADATA_FILE}.tmp" "$METADATA_FILE"
 
     echo "Deleted $count items ($(numfmt --to=iec --suffix=B $total_size))"
     return 0
 }
+
 
 
 #################################################
@@ -434,33 +439,34 @@ search_recycled() {
     local date_to=""
     local detailed_mode=false
 
+    # parse arguments in any order
     for arg in "$@"; do
         case "$arg" in
-            --date-from=*)
-                date_from="${arg#--date-from=}" ;;
-            --date-to=*)
-                date_to="${arg#--date-to=}" ;;
-            --detailed)
-                detailed_mode=true ;;
-            *)
-                # if not a flag, assume filename search term (case insensitive string match)
-                name_pattern="$arg" ;;
+            --date-from=*) date_from="${arg#--date-from=}" ;;
+            --date-to=*) date_to="${arg#--date-to=}" ;;
+            --detailed) detailed_mode=true ;;
+            *) name_pattern="$arg" ;;  # if it’s not a flag, assume it’s a filename search term
         esac
     done
 
-    # if nothing is specified, show no search criteria
+    # if user didn’t specify ANY criteria, nothing to search for
     if [[ -z "$name_pattern" && -z "$date_from" && -z "$date_to" ]]; then
         echo "No search criteria provided."
         return 0
     fi
 
-    local data=$(tail -n +3 "$METADATA_FILE")
+    # load all metadata (skip header lines)
+    local data
+    data=$(tail -n +3 "$METADATA_FILE")
 
-    # the provided pattern should be shown in ALL : searching "test" matches test.txt, mytest.pdf, fileTEST.doc
+    # keep a copy of original data for future reference if needed
+    local original_data="$data"
+
+    # strict substring match, case insensitive check
     if [[ -n "$name_pattern" ]]; then
         local filtered=""
         while IFS=',' read -r id name path date size type perms owner; do
-            # lowercase both for strict substring, case-insensitive
+            # Convert both to lowercase and check if name contains search term
             if [[ "${name,,}" == *"${name_pattern,,}"* ]]; then
                 filtered+="$id,$name,$path,$date,$size,$type,$perms,$owner"$'\n'
             fi
@@ -468,7 +474,8 @@ search_recycled() {
         data="$filtered"
     fi
 
-    # Date filtering — inclusive (>= from, <= to)
+    # date ranges are inclusive! >=2025-10-10 includes the 10th
+    # YYYY-MM-DD HH:MM:SS allows normal string comparison
     if [[ -n "$date_from" ]]; then
         data=$(echo "$data" | awk -F',' -v df="$date_from" '$4 >= df')
     fi
@@ -476,15 +483,30 @@ search_recycled() {
         data=$(echo "$data" | awk -F',' -v dt="$date_to" '$4 <= dt')
     fi
 
-    # If nothing left after filtering → exit
+    # personalized messages depending on WHY nothing matched
     if [[ -z "$data" ]]; then
-        echo "No matching items found for '${name_pattern:-your criteria}'."
+        # log stuff
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [SEARCH] Search criteria: name='${name_pattern:-'(none)'}' date_from='${date_from:-'(none)'}' date_to='${date_to:-'(none)'}' -- returned 0 items" >> "$RECYCLE_BIN_DIR/recyclebin.log"
+
+        # Filename + date filter -> filename existed but date excluded everything
+        if [[ -n "$name_pattern" && (-n "$date_from" || -n "$date_to") ]]; then
+            echo "No matching items found for '$name_pattern' in this date range."
+        # Only date filter was used -> filename wasn’t part of the search
+        elif [[ -n "$date_from" || -n "$date_to" ]]; then
+            echo "No matching items found in this date range."
+        # Only filename was used -> date filters were not used at all
+        else
+            echo "No matching items found for '$name_pattern'."
+        fi
         return 0
     fi
 
     echo "=== Search Results ==="
     echo
 
+    local count=0  # used for logging result count
+
+    # table — same as list functions
     if ! $detailed_mode; then
         printf "%-18s | %-20s | %-19s | %-10s\n" "ID" "Name" "Deleted At" "Size"
         printf "%s\n" "--------------------------------------------------------------------------------"
@@ -492,22 +514,29 @@ search_recycled() {
             [[ -z "$id" ]] && continue
             local human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
             printf "%-18s | %-20s | %-19s | %-10s\n" "${id:0:18}" "$name" "$date" "$human_size"
+            ((count++))
         done <<< "$data"
     else
+        # DETAILED MODE — same style as list --detailed
         printf "%-18s | %-20s | %-40s | %-19s | %-10s | %-8s | %-10s | %-12s\n" \
                "ID" "Name" "Path" "Deleted At" "Size" "Type" "Perms" "Owner"
         printf "%s\n" "-----------------------------------------------------------------------------------------------------------------------------------------------------"
         while IFS=',' read -r id name path date size type perms owner; do
             [[ -z "$id" ]] && continue
             local human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
-            local short_path=$(printf "%.40s" "$path")
+            local short_path=$(printf "%.40s" "$path")  # avoid breaking the table width
             printf "%-18s | %-20s | %-40s | %-19s | %-10s | %-8s | %-10s | %-12s\n" \
                    "$id" "$name" "$short_path" "$date" "$human_size" "$type" "$perms" "$owner"
+            ((count++))
         done <<< "$data"
     fi
 
+    # Log search *only after successful output*
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [SEARCH] Search criteria: name='${name_pattern:-'(none)'}' date_from='${date_from:-'(none)'}' date_to='${date_to:-'(none)'}' -- returned $count items" >> "$RECYCLE_BIN_DIR/recyclebin.log"
+
     return 0
 }
+
 
 
 
@@ -523,22 +552,42 @@ display_help() {
 Linux Recycle Bin - Usage Guide
 
 SYNOPSIS:
-    $0 [OPTION] [ARGUMENTS]
+    $0 [COMMAND] [OPTIONS] [ARGUMENTS]
 
-OPTIONS:
-    delete <file>      Move file/directory to recycle bin
-    list               List all items in recycle bin
-    restore <id>       Restore file by ID
-    search <pattern>   Search for files by name
-    empty              Empty recycle bin permanently
-    help               Display this help message
+COMMANDS:
 
-EXAMPLES:
-    $0 delete myfile.txt
-    $0 list
-    $0 restore 1696234567_abc123
-    $0 search "*.pdf"
-    $0 empty
+    delete <file1> <file2> ...
+        Move one or more files/directories to the recycle bin
+        Example: $0 delete "My File.txt"
+
+    list [--detailed] [--sort=name|date|size]
+        List contents of the recycle bin
+        --detailed   Show full metadata
+        --sort=...   Sort by name (A-Z), date (newest first), or size (largest first)
+        Example: $0 list --detailed --sort=size
+
+    restore <id>
+        Restore the specified item by its unique ID
+        Example: $0 restore 1761607543_xpfnr2
+
+    search <pattern> [--detailed] [--date-from=YYYY-MM-DD] [--date-to=YYYY-MM-DD]
+        Search for files by filename substring (case insensitive)
+        Date filtering is inclusive
+        Example: $0 search report --date-from=2025-10-01 --detailed
+
+    empty [<id>] [--pattern=<text>]
+        Delete matching items permanently (confirmation required)
+        No arguments = delete all items
+        Example (delete one):    $0 empty 1761607543_xpfnr2
+        Example (pattern match): $0 empty --pattern=log
+
+    help
+        Display this help message
+
+NOTES:
+    - Filenames with spaces MUST be quoted.
+    - All operations are logged to recyclebin.log.
+
 EOF
     return 0
 }
