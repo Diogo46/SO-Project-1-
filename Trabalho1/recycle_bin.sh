@@ -346,6 +346,9 @@ restore_file() {
 # to improve: right now if you try empty bananas, and bananas doesnt exist, it will say "No matching ID found". But bananas isnt an ID, so it should
 # return something else -> now returns "No matching items found for 'INPUT'. Nothing deleted." // y/N both case insensitive // 
 # if we got time, let's add a debug-metadata to show if metadata is clean or if there are any ghost entries
+# update to delete by name and not only ID or pattern
+## UPDATE log to record empty operations
+## provide summary of deleted items
 
 empty_recyclebin() {
     local target_id="$1"
@@ -422,6 +425,8 @@ empty_recyclebin() {
 # dates are inclusive: from 2025-10-20 includes the 20th
 # the initial function is searching for FULL filename (so if test.txt is in bin, if you search for test you wont get it)
 # let's make it search for the name WITHOUT the file extension, for easier handling ## DONE
+
+
 
 search_recycled() {
     local name_pattern=""
