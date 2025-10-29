@@ -580,6 +580,23 @@ COMMANDS:
         No arguments = delete all items
         Example (delete one):    $0 empty 1761607543_xpfnr2
         Example (pattern match): $0 empty --pattern=log
+    
+    stats|statistics    
+        Show detailed statistics about recycle bin usage
+        Example: $0 stats
+    
+    cleanup|autoclean|auto-clean [--dry-run]
+        Run automatic cleanup to remove items older than RETENTION_DAYS (from config)
+        --dry-run    Show what would be deleted without removing files
+        This is also triggered automatically after delete operations (runs in background).
+        Example (manual): $0 cleanup
+        Example (preview): $0 cleanup --dry-run
+    
+    preview <id>
+        Show a quick preview of a recycled file.
+        - For text files prints first 10 lines.
+        - For binary files shows file type info and size.
+        Example: $0 preview 1761607543_xpfnr2
 
     help
         Display this help message
@@ -591,6 +608,278 @@ NOTES:
 EOF
     return 0
 }
+
+#################################################
+# Function: show_statistics
+# Description: Displays detailed statistics about recycle bin usage
+# Parameters: None
+# Returns: 0 on success
+#################################################
+
+show_statistics() {
+    # Skip if metadata file is empty or missing
+    if [ ! -f "$METADATA_FILE" ] || [ $(wc -l < "$METADATA_FILE") -le 2 ]; then
+        echo "No statistics available - Recycle bin is empty."
+        return 0
+    fi  
+
+    # Get data (skip header lines)
+    local data=$(tail -n +3 "$METADATA_FILE")
+    
+    # Calculate basic stats
+    local total_items=$(echo "$data" | wc -l)
+    local total_size=$(echo "$data" | awk -F',' '{sum += $5} END {print sum}')
+    local human_total_size=$(numfmt --to=iec --suffix=B "$total_size" 2>/dev/null)
+    
+    # Get quota from config
+    local quota_mb=$(grep "MAX_SIZE_MB" "$CONFIG_FILE" | cut -d'=' -f2)
+    local quota_bytes=$((quota_mb * 1024 * 1024))
+    local usage_percent=$(( (total_size * 100) / quota_bytes ))
+    
+    # Count files vs directories
+    local total_files=$(echo "$data" | grep -c ",file,")
+    local total_dirs=$(echo "$data" | grep -c ",directory,")
+    
+    # Get dates
+    local newest_item=$(echo "$data" | sort -t',' -k4 | tail -n1)
+    local oldest_item=$(echo "$data" | sort -t',' -k4 | head -n1)
+    
+    # Calculate average size (only for files, not directories)
+    local avg_size=$(echo "$data" | grep ",file," | awk -F',' '
+        {sum += $5; count++} 
+        END {printf "%.0f", count ? sum/count : 0}
+    ')
+    local human_avg_size=$(numfmt --to=iec --suffix=B "$avg_size" 2>/dev/null)
+
+    # Format output
+    cat << EOF
+=== Recycle Bin Statistics ===
+
+Storage Usage:
+  Total Items:    $total_items
+  Total Size:     $human_total_size
+  Quota Used:     $usage_percent% of ${quota_mb}MB
+
+Item Breakdown:
+  Files:          $total_files
+  Directories:    $total_dirs
+  Average Size:   $human_avg_size per file
+
+Timeline:
+  Newest Item:    $(echo "$newest_item" | cut -d',' -f2,4 | tr ',' ' - ')
+  Oldest Item:    $(echo "$oldest_item" | cut -d',' -f2,4 | tr ',' ' - ')
+
+EOF
+    return 0
+}
+
+
+
+
+#################################################
+# Function: auto_cleanup
+# Description: Automatically cleans up old items from the recycle bin
+# Parameters: $1 - optional "--dry-run" to only show what would be deleted
+# Returns: 0 on success
+#################################################
+
+auto_cleanup() {
+    local dry_run=false
+    if [[ "$1" == "--dry-run" ]]; then
+        dry_run=true
+    fi
+
+    if [ ! -f "$METADATA_FILE" ] || [ "$(wc -l < "$METADATA_FILE")" -le 2 ]; then
+        echo "No items to clean (recycle bin is empty)."
+        return 0
+    fi
+
+    # Read retention days from config (default 30)
+    local retention_days
+    retention_days=$(grep -E '^RETENTION_DAYS=' "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2)
+    retention_days=${retention_days:-30}
+
+    local cutoff=$(date -d "-${retention_days} days" '+%Y-%m-%d %H:%M:%S')
+
+    # Find items older than cutoff (comparison works because of YYYY-MM-DD HH:MM:SS format)
+    local matches=$(tail -n +3 "$METADATA_FILE" | awk -F',' -v cutoff="$cutoff" '$4 <= cutoff')
+
+    if [ -z "$matches" ]; then
+        echo "No items older than $retention_days days (cutoff: $cutoff)."
+        return 0
+    fi
+
+    echo "Auto-cleanup: items older than $retention_days days (cutoff: $cutoff):"
+    local total_deleted=0
+    local total_bytes=0
+
+    while IFS=',' read -r id name path date size type perms owner; do
+        [[ -z "$id" ]] && continue
+        ((total_deleted++))
+        total_bytes=$(( total_bytes + size ))
+
+        if $dry_run; then
+            echo "  [DRY-RUN] Would remove: $name (ID: $id) - deleted at $date - size: $(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")"
+        else
+            rm -rf "$FILES_DIR/$id" 2>/dev/null
+            echo "$(date '+%Y-%m-%d %H:%M:%S') [AUTO_CLEAN] Removed '$name' (ID: $id) - originally deleted at $date" >> "$RECYCLE_BIN_DIR/recyclebin.log"
+            echo "  Removed: $name (ID: $id) - size: $(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")"
+        fi
+    done <<< "$matches"
+
+    # Remove entries from metadata (only when not dry-run)
+    if ! $dry_run; then
+        local idlist
+        idlist=$(echo "$matches" | cut -d',' -f1 | tr '\n' '|' | sed 's/|$//')
+        awk -F',' -v ids="$idlist" 'BEGIN{n=split(ids,a,"|"); for(i=1;i<=n;i++) del[a[i]]=1} NR<=2{print; next} { if(!($1 in del)) print }' "$METADATA_FILE" > "${METADATA_FILE}.tmp" && mv "${METADATA_FILE}.tmp" "$METADATA_FILE"
+    fi
+
+    echo
+    if $dry_run; then
+        echo "Cleanup summary (dry-run): $total_deleted items would be removed - $(numfmt --to=iec --suffix=B "$total_bytes" 2>/dev/null || echo "${total_bytes}B") would be freed"
+    else
+        echo "Cleanup summary: $total_deleted items removed - $(numfmt --to=iec --suffix=B "$total_bytes" 2>/dev/null || echo "${total_bytes}B") freed"
+    fi
+
+    return 0
+}
+
+
+
+// ...existing code...
+#################################################
+# Function: preview_file
+# Description: Show a quick preview of a recycled file
+#              - For text files: prints first 10 lines
+#              - For binary files: displays file(1) type info and size
+# Parameters: $1 - unique file ID
+# Returns: 0 on success, 1 on failure
+#################################################
+preview_file() {
+    local file_id="$1"
+    if [ -z "$file_id" ]; then
+        echo -e "${RED}Error: No file ID specified${NC}"
+        return 1
+    fi
+
+    if [ ! -f "$METADATA_FILE" ] || [ "$(wc -l < "$METADATA_FILE")" -le 2 ]; then
+        echo -e "${YELLOW}Recycle bin is empty or metadata missing.${NC}"
+        return 1
+    fi
+
+    local entry
+    entry=$(tail -n +3 "$METADATA_FILE" | grep -m1 "^${file_id}," || true)
+    if [ -z "$entry" ]; then
+        echo -e "${RED}Error: No entry found for ID '${file_id}'${NC}"
+        return 1
+    fi
+
+    IFS=',' read -r id original_name original_path deletion_date file_size file_type perms owner <<< "$entry"
+    local stored_path="$FILES_DIR/$file_id"
+
+    if [ ! -e "$stored_path" ]; then
+        echo -e "${RED}Error: Stored file missing: $stored_path${NC}"
+        return 1
+    fi
+
+    # Directories cannot be previewed as text
+    if [ "$file_type" = "directory" ]; then
+        echo -e "${YELLOW}Preview not available: '$original_name' is a directory.${NC}"
+        echo "Stored location: $stored_path"
+        return 0
+    fi
+
+    # Use file(1) to decide text vs binary (check for the word "text" in output)
+    local foutput
+    foutput=$(file -b --mime-type "$stored_path" 2>/dev/null || file -b "$stored_path" 2>/dev/null)
+
+    if echo "$foutput" | grep -qi 'text'; then
+        echo "=== Preview: $original_name (first 10 lines) ==="
+        echo
+        head -n 10 "$stored_path" 2>/dev/null || echo -e "${YELLOW}(unable to read file contents)${NC}"
+        echo
+        echo "=== End preview ==="
+    else
+        # Binary: show file(1) description and size
+        local descr
+        descr=$(file -b "$stored_path" 2>/dev/null || echo "$foutput")
+        local human_size
+        human_size=$(numfmt --to=iec --suffix=B "$file_size" 2>/dev/null || echo "${file_size}B")
+        echo "File appears to be binary: $original_name"
+        echo "Type: $descr"
+        echo "Size: $human_size"
+    fi
+
+    return 0
+}
+
+
+
+
+#################################################
+# Function: preview_file
+# Description: Show a quick preview of a recycled file
+# Parameters: $1 - unique file ID
+# Returns: 0 on success, 1 on failure
+#################################################
+preview_file() {
+    local file_id="$1"
+    if [ -z "$file_id" ]; then
+        echo -e "${RED}Error: No file ID specified${NC}"
+        return 1
+    fi
+
+    if [ ! -f "$METADATA_FILE" ] || [ "$(wc -l < "$METADATA_FILE")" -le 2 ]; then
+        echo -e "${YELLOW}Recycle bin is empty or metadata missing.${NC}"
+        return 1
+    fi
+
+    local entry
+    entry=$(tail -n +3 "$METADATA_FILE" | grep -m1 "^${file_id}," || true)
+    if [ -z "$entry" ]; then
+        echo -e "${RED}Error: No entry found for ID '${file_id}'${NC}"
+        return 1
+    fi
+
+    IFS=',' read -r id original_name original_path deletion_date file_size file_type perms owner <<< "$entry"
+    local stored_path="$FILES_DIR/$file_id"
+
+    if [ ! -e "$stored_path" ]; then
+        echo -e "${RED}Error: Stored file missing: $stored_path${NC}"
+        return 1
+    fi
+
+    # Directories cannot be previewed as text
+    if [ "$file_type" = "directory" ]; then
+        echo -e "${YELLOW}Preview not available: '$original_name' is a directory.${NC}"
+        echo "Stored location: $stored_path"
+        return 0
+    fi
+
+    # Use file(1) to decide text vs binary (check for the word "text" in output)
+    local foutput=$(file -b --mime-type "$stored_path" 2>/dev/null || file -b "$stored_path" 2>/dev/null)
+
+    if echo "$foutput" | grep -qi 'text'; then
+        echo "=== Preview: $original_name (first 10 lines) ==="
+        echo
+        head -n 10 "$stored_path" 2>/dev/null || echo -e "${YELLOW}(unable to read file contents)${NC}"
+        echo
+        echo "=== End preview ==="
+    else
+        # Binary: show file(1) description and size
+        local descr
+        descr=$(file -b "$stored_path" 2>/dev/null || echo "$foutput")
+        local human_size
+        human_size=$(numfmt --to=iec --suffix=B "$file_size" 2>/dev/null || echo "${file_size}B")
+        echo "File appears to be binary: $original_name"
+        echo "Type: $descr"
+        echo "Size: $human_size"
+    fi
+
+    return 0
+}
+ 
+
 
 
 #################################################
@@ -609,6 +898,7 @@ main() {
         delete)
             shift
             delete_file "$@"
+            auto_cleanup &>/dev/null & # Run auto-cleanup in background after deletion
             ;;
         list)
             shift
@@ -624,6 +914,18 @@ main() {
         empty)
         shift
             empty_recyclebin "$@" #  all arguments are passed correctly
+            ;;
+        preview)
+            shift
+            preview_file "$@"    # preview <id>
+            ;;
+        stats|statistics)
+            show_statistics
+            ;;
+        cleanup|autoclean|auto-clean)
+            shift
+            # Manual invocation of auto_cleanup; supports --dry-run
+            auto_cleanup "$@"
             ;;
         help|--help|-h)
             display_help
