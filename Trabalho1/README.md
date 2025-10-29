@@ -50,6 +50,10 @@ Moves one or more files or directories to the recycle bin.
 To delete a file name that has spaces in its name, simple put the file name inside "".
 ./recycle_bin.sh delete "as marias.txt"
 
+The action is properly logged as follows: 2025-10-29 18:34:47 [DELETE] Deleted 'aaa.txt' (ID: 1761762887_z1PKwdCSoS).
+
+
+
 
 2. List contents
 
@@ -74,15 +78,18 @@ All of the files in the recycle in can now be sorted using sort. The user is abl
 ./recycle_bin.sh list --sort=date
 ./recycle_bin.sh list --sort=name
 
-Naturally, you can still add the --detailed to have a detailed, sorted list. 
+You can also use --reverse or -r flag to revert sort order (oldest first instead of newest first, smallest first instead of biggest first)
+
+./recycle_bin.sh list --sort=size --reverse (or -r)
+./recycle_bin.sh list --sort=date --reverse (or -r)
+
+Naturally, you can still add the --detailed to have a detailed, sorted (or reverse sorted) list. 
 
 There are two main validation steps throughout the function's usage: 
-- if you try to run a flag that's not --detailed or --sort, you will get an error message and then it will show you what the valid options are;
+- if you try to run a flag that's not --detailed, --sort, --reverse or -r, you will get an error message and then it will show you what the valid options are;
 - if you try to sort by anything other than size, name or date, you will get the same message and a list of sorting options;
 
 If the recyble bin is empty and you try to list it, it will return "Recycle bin is empty". 
-
-
 
 
 
@@ -92,8 +99,12 @@ If the recyble bin is empty and you try to list it, it will return "Recycle bin 
 Restores a deleted file to its original location (by ID or filename).
 ./recycle_bin.sh restore <file_id or filename>
 
+When restoring by filename, if there are two or more files with the same name, the user will be prompted via a menu to select which file he wants. Supports both versions. The first argument will always be read as a name, unless you use --id to make it an ID. It's more natural for the user. 
+./recycle_bin.sh restore 12345_abcd
+./recycle_bin.sh restore --pattern=report
 
 
+The actions is properly logged as follows: 2025-10-29 18:11:40 [RESTORE] Restored 'test.txt' to './test.txt'
 
 
 
@@ -175,19 +186,57 @@ Recycle bin listing with formatted table output
 
 Detailed view for full metadata inspection (--detailed)
 
-- File restoration:
+- generate_unique_id
 
-Restores files to their original path
+Adapted the function to enforce safe character set [A-Za-z0-9_-] (shell-friendly) and a fallback to never emit an empty ID; [OPTIONAL]
 
-Recreates missing directories automatically
 
-Handles naming conflicts (overwrite, rename, or cancel)
+- restore_file()
 
-Restores original file permissions and ownership
+Restores files to their original path;
 
-Logging system for every action (recyclebin.log)
+Recreates missing directories automatically;
 
-Basic error handling (invalid options, missing files, permission issues, etc.)
+Handles naming conflicts (overwrite, rename, or cancel);
+
+Restores original file permissions and ownership;
+
+Logging system for every action (recyclebin.log);
+
+Basic error handling (invalid options, missing fi;les, permission issues, etc.)
+
+
+
+
+- version_command() [OPTIONAL]
+
+Created a version command function to print the current version and basic environmental information; [OPTIONAL]
+
+
+
+- config_command() [OPTIONAL]
+
+Created a configuration command to show and update current configuration (maximum size and retention days); [OPTIONAL]
+
+
+
+
+- delete_file()
+
+Accept single or multiple file paths as arguments;
+
+Preserve original file metadata (timestamp, permissions, owner);
+
+Store original absolute path for restoration;
+
+Generate unique identifiers to prevent name conflicts;
+
+Support both files and directories (recursive);
+
+Create timestamped entries in metadata log;
+
+
+
 
 - list_recycled()
 
@@ -203,9 +252,15 @@ Support formatted output (table view);
 
 Implement sorting options (by date, name, size);
 
+Created a --reverse or -r flag for reverse sorting order; [OPTIONAL]
+
 Can always use detailed option, even when sorting the list; [OPTIONAL]
 
 Added safeguards for misinputs; [OPTIONAL]
+
+
+
+
 
 - empty_recyclebin()
 
@@ -218,6 +273,10 @@ Require confirmation before execution;
 Update metadata log appropriately;
 
 Provide summary of deleted items;
+
+
+
+
 
 - search_recycled()
 
@@ -234,7 +293,17 @@ Display matching results with full details;
 ---
 
 ## Configuration
-[How to configure settings]
+
+Using the config_command() function, the user can input the configuration it wishes for the recycle bin.
+
+With the code below, you can see the current configuration parameters. 
+./recycle_bin.sh config show
+
+To change the maximum size, you can run the following code and insert the maximum size in MB as the last argument.
+./recycle_bin.sh config set quota 2048
+
+To change the number of retention days, you can run the following code and insert the number of retentions days.
+./recycle_bin.sh config set retention 45
 
 ---
 
