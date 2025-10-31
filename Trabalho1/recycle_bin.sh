@@ -352,7 +352,7 @@ list_recycled() {
         echo "(Tip: use --detailed to view full IDs)"
     else
         debug "Showing results in detailed mode"
-        printf "%-18s | %-20s | %-40s | %-19s | %-10s | %-8s | %-10s | %-12s\n" \
+        printf "%-21s | %-20s | %-40s | %-19s | %-10s | %-8s | %-10s | %-12s\n" \
                "ID" "Name" "Path" "Deleted At" "Size" "Type" "Perms" "Owner"
         printf "%s\n" "-----------------------------------------------------------------------------------------------------------------------------------------------------"
         while IFS=',' read -r id name path date size type perms owner; do
@@ -376,12 +376,6 @@ list_recycled() {
 
 
 
-#################################################
-# Function: restore_file
-# Description: Restores file from recycle bin
-# Parameters: $1 - unique ID of file to restore
-# Returns: 0 on success, 1 on failure
-#################################################
 #################################################
 # Function: restore_file
 # Description: Restores file from recycle bin by ID or name pattern
@@ -505,12 +499,6 @@ restore_file() {
 # Returns: 0 on success
 #################################################
 
-# to improve: right now if you try empty bananas, and bananas doesnt exist, it will say "No matching ID found". But bananas isnt an ID, so it should
-# return something else -> now returns "No matching items found for 'INPUT'. Nothing deleted." // y/N both case insensitive // 
-# if we got time, let's add a debug-metadata to show if metadata is clean or if there are any ghost entries
-# update to delete by name and not only ID or pattern
-## UPDATE log to record empty operations
-## provide summary of deleted items
 
 empty_recyclebin() {
     local target_id="$1"
@@ -584,15 +572,6 @@ empty_recyclebin() {
 # Parameters: $1 - search pattern
 # Returns: 0 on success
 #################################################
-# search_recycled features and how to use -> ./recycle_bin.sh search report (shows report in bin)
-# date range search -> ./recycle_bin.sh search --date-from=2025-10-20 --date-to=2025-10-30 (date is in YYMMDD format)
-# we can combine both name AND date in a single search, for more accurate results ./recycle_bin.sh search report --date-from=2025-10-20 --date-to=2025-10-27 #DONE
-# supports --detailed #DONE
-# allows single ended ranges (--date-from=XX will show everything from that date forward, --date-to=XX will show everything up until that point) ##DONE
-# dates are inclusive: from 2025-10-20 includes the 20th
-# the initial function is searching for FULL filename (so if test.txt is in bin, if you search for test you wont get it)
-# let's make it search for the name WITHOUT the file extension, for easier handling ## DONE
-
 
 
 search_recycled() {
@@ -694,6 +673,146 @@ search_recycled() {
 }
 
 
+#################################################
+# Function: interactive_menu
+# Description: Provides a text-based menu for users
+#              to manage the recycle bin interactively.
+# Parameters: None
+# Returns: 0 on exit
+#################################################
+interactive_menu() {
+    clear
+    echo "==============================================="
+    echo "         Linux Recycle Bin - Interactive Mode  "
+    echo "==============================================="
+    echo "Version: $VERSION"
+    echo "Recycle Bin: $RECYCLE_BIN_DIR"
+    echo
+
+    # Strict yes/no helper: accepts only y or n (case-insensitive). Empty is invalid.
+    ask_yes_no() {
+        local prompt="$1"
+        local ans
+        while true; do
+            read -p "$prompt (y/N): " ans
+            # Normalize to lowercase and trim leading/trailing whitespace
+            ans="$(echo -n "$ans" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            case "$ans" in
+                y) return 0 ;;   # yes
+                n) return 1 ;;   # no
+                *) echo -e "${YELLOW}Invalid input. Please answer with y or n.${NC}" 1>&2 ;;
+            esac
+        done
+    }
+
+    while true; do
+        echo "Choose an option:"
+        echo " 1) Delete a file"
+        echo " 2) List recycled items"
+        echo " 3) Restore a file"
+        echo " 4) Search files"
+        echo " 5) Empty recycle bin"
+        echo " 6) Show statistics"
+        echo " 7) Auto-clean old items"
+        echo " 8) Preview a file"
+        echo " 9) Show configuration"
+        echo "10) Change configuration"
+        echo "11) Show help"
+        echo " 0) Exit"
+        echo
+
+        read -p "Enter your choice [0-11]: " choice
+        echo
+
+        case "$choice" in
+            1)
+                read -p "Enter the full path(s) of the file(s) to delete: " -a files
+                delete_file "${files[@]}"
+                ;;
+            2)
+                if ask_yes_no "Show detailed view?"; then
+                    list_recycled --detailed
+                else
+                    list_recycled
+                fi
+                ;;
+            3)
+                read -p "Enter filename or --id <ID> to restore: " args
+                restore_file $args
+                ;;
+            4)
+                read -p "Enter search term: " pattern
+                if ask_yes_no "Filter by date range?"; then
+                    read -p "From date (YYYY-MM-DD): " from
+                    read -p "To date (YYYY-MM-DD): " to
+                    search_recycled "$pattern" --date-from="$from" --date-to="$to"
+                else
+                    search_recycled "$pattern"
+                fi
+                ;;
+            5)
+                read -p "Enter ID or --pattern=<text> (leave blank for ALL): " arg
+                empty_recyclebin "$arg"
+                ;;
+            6)
+                show_statistics
+                ;;
+            7)
+                if ask_yes_no "Run dry-run mode first?"; then
+                    auto_cleanup --dry-run
+                else
+                    auto_cleanup
+                fi
+                ;;
+            8)
+                read -p "Enter file ID to preview: " fid
+                preview_file "$fid"
+                ;;
+            9)
+                config_command show
+                ;;
+            10)
+                echo "Select the configuration to change:"
+                echo " [1] Quota"
+                echo " [2] Retention"
+                read -p "Enter your choice [1-2]: " cfg_choice
+
+                case "$cfg_choice" in
+                    1)
+                        read -p "Enter new quota value (in MB): " value
+                        config_command set quota "$value"
+                        ;;
+                    2)
+                        read -p "Enter new retention value (in days): " value
+                        config_command set retention "$value"
+                        ;;
+                    *)
+                        echo -e "${RED}Invalid input. Please choose either 1 or 2.${NC}"
+                        ;;
+                esac
+                ;;
+            11)
+                display_help
+                ;;
+            0)
+                echo "Exiting interactive mode. Goodbye!"
+                sleep 1
+                break
+                ;;
+            *)
+                echo -e "${RED}Invalid option. Please choose between 0 and 11.${NC}"
+                ;;
+        esac
+
+        echo
+        read -p "Press Enter to continue..." temp
+        clear
+        echo "==============================================="
+        echo "       Linux Recycle Bin - Interactive Mode    "
+        echo "==============================================="
+        echo
+    done
+}
 
 
 #################################################
@@ -710,7 +829,8 @@ display_help() {
     cur_retention=${cur_retention:-30}
 
     cat << EOF
-Linux Recycle Bin - Usage Guide (Version 1.0)
+Linux Recycle Bin - Usage Guide (Version $VERSION)
+==================================================
 
 SYNOPSIS:
     $0 [COMMAND] [OPTIONS] [ARGUMENTS]
@@ -743,7 +863,7 @@ COMMANDS:
 
     empty [<id>] [--pattern=<text>]
         Permanently delete matching items (confirmation required).
-        No arguments = delete all items
+        No arguments = delete all items.
         Example (delete one):    $0 empty 1761767543_xpfnr2
         Example (pattern match): $0 empty --pattern=log
 
@@ -777,12 +897,40 @@ COMMANDS:
         Example: $0 config set retention 45
 
     help
-        Display this help message
+        Display this help message.
+
+--------------------------------------------------
+INTERACTIVE MENU MODE
+--------------------------------------------------
+
+    You can manage the recycle bin interactively through a simple menu system.
+
+    To launch it:
+        $0 interactive
+        or
+        $0 menu
+
+    Inside the menu, you can:
+        [1] Delete a file or folder
+        [2] List all recycled items
+        [3] Restore files by name or ID
+        [4] Search files (with optional date filters)
+        [5] Empty the recycle bin
+        [6] Show usage statistics
+        [7] Auto-clean old files
+        [8] Preview a recycled file
+        [9] Show current configuration
+       [10] Change configuration (Quota or Retention)
+       [11] View help
+        [0] Exit the menu
+
+    All yes/no prompts require explicit answers ("y" or "n").
+    Invalid inputs will display a yellow warning message.
 
 NOTES:
     - Filenames with spaces MUST be quoted.
     - All operations are logged to recyclebin.log.
-    - Version: 1.0 | Retention: ${cur_retention} days | Quota: ${cur_quota} MB
+    - Version: $VERSION | Retention: ${cur_retention} days | Quota: ${cur_quota} MB
 
 EOF
     return 0
@@ -1002,10 +1150,11 @@ preview_file() {
 #################################################
 
 debug() {
-    if $VERBOSE; then
-        echo -e "${YELLOW}[DEBUG] $1${NC}"
+    if [ "${VERBOSE:-false}" = true ]; then
+        echo -e "${YELLOW}[DEBUG] $1${NC}" >&2
     fi
 }
+
 
 
 #################################################
@@ -1078,6 +1227,10 @@ main() {
         help|--help|-h)
             display_help
             ;;
+        interactive|menu)
+            interactive_menu
+            ;;
+
         *)
             echo "Invalid option. Use 'help' for usage information."
             exit 1
