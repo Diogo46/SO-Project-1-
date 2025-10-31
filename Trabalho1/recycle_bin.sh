@@ -382,6 +382,14 @@ list_recycled() {
 # Parameters: $1 - unique ID of file to restore
 # Returns: 0 on success, 1 on failure
 #################################################
+#################################################
+# Function: restore_file
+# Description: Restores file from recycle bin by ID or name pattern
+# Parameters:
+#   --id <ID>     -> Force exact ID match
+#   <pattern>     -> Restore by filename substring (case-insensitive)
+# Returns: 0 on success, 1 on failure
+#################################################
 restore_file() {
     # Skip empty or accidental arg
     [[ -z "$1" ]] && debug "Skipping empty restore argument" && return 1
@@ -414,6 +422,12 @@ restore_file() {
     file_id="${file_id%%[[:space:]]}"
     file_id="${file_id//$'\r'/}"
 
+    # --- Auto-detect if argument looks like a valid ID (timestamp_10chars) ---
+    if [[ "$file_id" =~ ^[0-9]{10}_[A-Za-z0-9]{10}$ ]]; then
+        debug "Detected ID pattern '$file_id' — forcing ID mode"
+        force_id=true
+    fi
+
     debug "Restore request: '$file_id' | force_id=$force_id"
 
     local entry=""
@@ -430,7 +444,7 @@ restore_file() {
             return 1
         fi
     else
-        # PATTERN search -- ALWAYS name-based
+        # PATTERN search -- name-based, case-insensitive substring
         debug "Running pattern match for '$file_id'"
         entry=$(tail -n +3 "$METADATA_FILE" | awk -F',' -v term="${file_id,,}" 'tolower($2) ~ term {print}')
         if [[ -z "$entry" ]]; then
