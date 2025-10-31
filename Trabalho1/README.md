@@ -99,7 +99,7 @@ If the recyble bin is empty and you try to list it, it will return "Recycle bin 
 Restores a deleted file to its original location (by ID or filename).
 ./recycle_bin.sh restore <file_id or filename>
 
-When restoring by filename, if there are two or more files with the same name, the user will be prompted via a menu to select which file he wants. Supports both versions. The first argument will always be read as a name, unless you use --id to make it an ID. It's more natural for the user. 
+When restoring by filename, if there are two or more files with the same name, the user will be prompted via a menu to select which file he wants. Supports both versions. The first argument will always be read as a name, unless you use --id to make it an ID, making it for intuitive to use.
 ./recycle_bin.sh restore 12345_abcd
 ./recycle_bin.sh restore --pattern=report
 
@@ -131,7 +131,7 @@ Permanently deletes a file by pattern/name (case insensitive).
 ./recycle_bin.sh empty --pattern=aa
 ./recycle_bin.sh empty --pattern=test
 
-After deleting a file (or multiple) from the recycle bin, you will be shown a list of deleted items per item and another information of how many items you deleted and size. 
+After deleting a file (or multiple) from the recycle bin, you will be shown a list of deleted items and another information of how many items you deleted and size. 
 
 The action is properly logged as follows: 2025-10-28 20:22:21 [EMPTY] Deleted 'as marias.txt' (ID: 1761681451_vuiawn).
 
@@ -170,6 +170,75 @@ Everytime the function is used, it's logged in the following manner:
 
 
 
+8. Version command
+
+Show version and important file paths.
+./recycle_bin.sh version
+
+
+
+9. Configuration command
+
+This command allows user to configurate the maximum size of the recycle bin and the maximum number of retention days.
+./recycle_bin.sh config 
+
+To show current configuration, use:
+./recycle_bin.sh config show
+
+To change current quota and update maximum allowed recycle bin size, use:
+Example: ./recycle_bin.sh config set quota (size)
+
+To change current retention days (maximum number of days a file can be in the recycle bin before a cleanup):
+Example: ./recycle_bin.sh config set retention (days)
+
+
+
+10. Cleanup/Autoclean
+
+Manually triggers auto-cleanup of expired items (older than RETENTION_DAYS).
+./recycle_bin.sh cleanup
+
+Before actually deleting the items, you can use a dry run to see what files would be deleted:
+./recycle_bin.sh cleanup --dry-run
+
+
+11. Preview
+
+Shows a quick preview of a recycled file (first ten lines):
+./recycle_bin.sh preview
+
+Example: ./recycle_bin.sh preview <ID>
+
+
+
+12. Stats
+
+Shows detailed statistics about recycle bin usage: 
+./recycle_bin.sh stats
+
+Example: ./recycle_bin.sh stats
+
+
+
+13. Interactive menu mode
+
+You can manage the recycle bin interactively through a simple menu system. To launch it, use either:
+ ./recycle_bin.sh interactive
+
+ or 
+
+ ./recycle_bin.sh menu
+
+Inside the menu, you can use any and all functions mentioned above, interactively. 
+
+
+
+14. Debug mode
+
+Implemented several debug lines on all major functions and processes. Activate it by using any function and then using the --verbose flag:
+Example: ./recycle_bin list --verbose
+
+
 ---
 
 ## Features
@@ -186,24 +255,11 @@ Recycle bin listing with formatted table output
 
 Detailed view for full metadata inspection (--detailed)
 
+
+
 - generate_unique_id
 
 Adapted the function to enforce safe character set [A-Za-z0-9_-] (shell-friendly) and a fallback to never emit an empty ID; [OPTIONAL]
-
-
-- restore_file()
-
-Restores files to their original path;
-
-Recreates missing directories automatically;
-
-Handles naming conflicts (overwrite, rename, or cancel);
-
-Restores original file permissions and ownership;
-
-Logging system for every action (recyclebin.log);
-
-Basic error handling (invalid options, missing fi;les, permission issues, etc.)
 
 
 
@@ -259,6 +315,22 @@ Can always use detailed option, even when sorting the list; [OPTIONAL]
 Added safeguards for misinputs; [OPTIONAL]
 
 
+- restore_file()
+
+Restores files to their original path;
+
+Recreates missing directories automatically;
+
+Handles naming conflicts (overwrite, rename, or cancel);
+
+Restores original file permissions and ownership;
+
+Logging system for every action (recyclebin.log);
+
+Basic error handling (invalid options, missing fi;les, permission issues, etc.);
+
+
+
 
 
 
@@ -290,6 +362,49 @@ Display matching results with full details;
 
 
 
+- interactive_menu()
+
+Created an interactive menu to use any all functions above, interactively; 
+
+
+
+
+- display_help()
+
+Updated the help function to show all available information about all the executable commands and prompts in this script;
+
+
+
+- show_statistics() [OPTIONAL]
+
+Created a statistics function to show basic stats about the recycle bin, including storage usage, item breakdown and timeline; [OPTIONAL]
+
+
+
+
+
+- auto_cleanup() [OPTIONAL]
+ 
+Created a auto-cleanup function to eliminate files older than the configured max number of retention days; [OPTIONAL]
+
+Created a dry run, to see what files would be deleted before actually deleting them; [OPTIONAL]
+
+
+
+
+- preview_file() [OPTIONAL]
+
+Created a preview file function, to preview the first ten lines or the type of file in the recycle bin; [OPTIONAL]
+
+
+
+
+- debug() 
+
+Implemented several debug lines over all major functions to run with verbose mode;
+
+
+
 ---
 
 ## Configuration
@@ -308,14 +423,23 @@ To change the number of retention days, you can run the following code and inser
 ---
 
 ## Examples
-[Detailed usage examples with screenshots]
+
+All examples are listed below the function's explanation in Usage. Inside the screenshot folder, you can also find several screenshots of the aforementioned functions working.
 
 ---
 
 ## Known Issues
-[Any limitations or bugs]
+
+The script was developed for Bash and uses features like [[ ... ]], case, and process substitution, so it may not run correctly in sh, zsh, or dash.
+Filenames containing commas or newlines can break the CSV structure of metadata.db.
+Files are restored using chmod and stored owner info, but original ownership cannot be restored unless the user has root privileges. 
 
 ---
 
 ## References
-[Resources used]
+
+GNU Awk User’s Guide - https://www.gnu.org/software/gawk/manual/ (Last consulted at 31-10-2025);
+GNU Bash Manual - https://www.gnu.org/software/bash/manual/ (Last consulted at 31-10-2025);
+Stack Overflow; 
+Reddit Linux and bash programming subs;
+Linux Man Pages;

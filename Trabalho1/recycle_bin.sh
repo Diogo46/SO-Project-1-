@@ -32,11 +32,11 @@ NC='\033[0m' # No Color
 #################################################
 
 version_command() {
-    echo "Linux Recycle Bin - Version $VERSION"
-    echo "Metadata: $METADATA_FILE"
-    echo "Files dir: $FILES_DIR"
-    echo "Config: $CONFIG_FILE"
-    return 0
+    echo "Linux Recycle Bin - Version $VERSION"        # prints the current version number of the program
+    echo "Metadata: $METADATA_FILE"                   # shows the path to the metadata file used for tracking deleted items
+    echo "Files dir: $FILES_DIR"                      # shows the directory where deleted files are stored
+    echo "Config: $CONFIG_FILE"                       # shows the location of the configuration file
+    return 0                                          # indicates successful execution of the function
 }
 
 #################################################
@@ -48,22 +48,21 @@ version_command() {
 #   set retention <DAYS>
 # Returns: 0 on success, 1 on failure
 #################################################
-
 config_command() {
     local action="$1"
     local key="$2"
     local value="$3"
 
     # Ensure config exists
-    [ -f "$CONFIG_FILE" ] || {
+    [ -f "$CONFIG_FILE" ] || {      # if config file doesn't exist, create it with default values
         echo "MAX_SIZE_MB=1024" > "$CONFIG_FILE"
         echo "RETENTION_DAYS=30" >> "$CONFIG_FILE"
     }
 
     # Helper to read current values
     local cur_quota cur_retention
-    cur_quota=$(grep -E '^MAX_SIZE_MB=' "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2)
-    cur_retention=$(grep -E '^RETENTION_DAYS=' "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2)
+    cur_quota=$(grep -E '^MAX_SIZE_MB=' "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2)      # grep -E uses regex to find MAX_SIZE_MB, cut extracts value after "="
+    cur_retention=$(grep -E '^RETENTION_DAYS=' "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2)      # same for RETENTION_DAYS
     cur_quota=${cur_quota:-1024}
     cur_retention=${cur_retention:-30}
 
@@ -77,13 +76,12 @@ config_command() {
         set)
             case "$key" in
                 quota)
-                    # Must be a positive integer
                     if [[ ! "$value" =~ ^[0-9]+$ ]] || [ "$value" -le 0 ]; then
                         echo "Invalid quota value. Use a positive integer in MB."
                         return 1
                     fi
-                    if grep -qE '^MAX_SIZE_MB=' "$CONFIG_FILE"; then
-                        sed -i "s/^MAX_SIZE_MB=.*/MAX_SIZE_MB=$value/" "$CONFIG_FILE"
+                    if grep -qE '^MAX_SIZE_MB=' "$CONFIG_FILE"; then      # -q makes grep silent, -E allows regex; checks if line exists
+                        sed -i "s/^MAX_SIZE_MB=.*/MAX_SIZE_MB=$value/" "$CONFIG_FILE"      # -i edits file in place, replaces existing value
                     else
                         echo "MAX_SIZE_MB=$value" >> "$CONFIG_FILE"
                     fi
@@ -94,7 +92,7 @@ config_command() {
                         echo "Invalid retention value. Use a positive integer in days."
                         return 1
                     fi
-                    if grep -qE '^RETENTION_DAYS=' "$CONFIG_FILE"; then
+                    if grep -qE '^RETENTION_DAYS=' "$CONFIG_FILE"; then      # same logic as quota but for retention days
                         sed -i "s/^RETENTION_DAYS=.*/RETENTION_DAYS=$value/" "$CONFIG_FILE"
                     else
                         echo "RETENTION_DAYS=$value" >> "$CONFIG_FILE"
@@ -109,7 +107,6 @@ config_command() {
                     return 1
                     ;;
             esac
-            # Show new values after update
             echo "New configuration:"
             echo "  Quota (MAX_SIZE_MB):     $(grep -E '^MAX_SIZE_MB=' "$CONFIG_FILE" | cut -d'=' -f2) MB"
             echo "  Retention (RETENTION_DAYS): $(grep -E '^RETENTION_DAYS=' "$CONFIG_FILE" | cut -d'=' -f2) days"
@@ -127,6 +124,7 @@ config_command() {
 
 
 
+
 #################################################
 # Function: initialize_recyclebin
 # Description: Creates recycle bin directory structure
@@ -134,24 +132,23 @@ config_command() {
 # Returns: 0 on success, 1 on failure
 #################################################
 initialize_recyclebin() {
-    if [ ! -d "$RECYCLE_BIN_DIR" ]; then
-        mkdir -p "$FILES_DIR"
-        touch "$METADATA_FILE"
-        echo "# Recycle Bin Metadata" > "$METADATA_FILE"
-        echo "ID,ORIGINAL_NAME,ORIGINAL_PATH,DELETION_DATE,FILE_SIZE,FILE_TYPE,PERMISSIONS,OWNER" >> "$METADATA_FILE"
+    if [ ! -d "$RECYCLE_BIN_DIR" ]; then      # checks if the main recycle bin directory does not exist
+        mkdir -p "$FILES_DIR"      # creates the files directory structure recursively (-p avoids error if parent dirs missing)
+        touch "$METADATA_FILE"      # creates an empty metadata file if it doesn't exist
+        echo "# Recycle Bin Metadata" > "$METADATA_FILE"      # writes a header comment line to the metadata file
+        echo "ID,ORIGINAL_NAME,ORIGINAL_PATH,DELETION_DATE,FILE_SIZE,FILE_TYPE,PERMISSIONS,OWNER" >> "$METADATA_FILE"      # writes CSV column headers
 
-        touch "$CONFIG_FILE"
-        echo "MAX_SIZE_MB=1024" > "$CONFIG_FILE"  #  1024 MBmax size
-        echo "RETENTION_DAYS=30" >> "$CONFIG_FILE"  # days to keep files
+        touch "$CONFIG_FILE"      # creates the config file
+        echo "MAX_SIZE_MB=1024" > "$CONFIG_FILE"      # writes default quota (1024 MB)
+        echo "RETENTION_DAYS=30" >> "$CONFIG_FILE"      # writes default retention period (30 days)
 
-        touch "$RECYCLE_BIN_DIR/recyclebin.log"
-        echo "Recycle bin initialized at $RECYCLE_BIN_DIR"
-        return 0
+        touch "$RECYCLE_BIN_DIR/recyclebin.log"      # creates an empty log file for operations
+        echo "Recycle bin initialized at $RECYCLE_BIN_DIR"      # prints confirmation message to the user
+        return 0      # returns success
     fi
-    return 0
-
-
+    return 0      # returns success even if directory already existed (does nothing)
 }
+
 
 
 #################################################
@@ -159,60 +156,65 @@ initialize_recyclebin() {
 # Description: Generates a shell-safe unique ID (A–Z, a–z, 0–9, _ or - only)
 # Returns: Prints unique ID to stdout
 #################################################
+
+
 generate_unique_id() {
     # Base: epoch seconds + random alnum block
     # LC_ALL=C makes tr's ranges portable; head -c avoids UUOC
     local ts rand id
-    ts="$(date +%s)"
-    rand="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 10)"
-    id="${ts}_${rand}"
+    ts="$(date +%s)"      # gets the current time in seconds since the epoch
+    rand="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 10)"      # reads random bytes from /dev/urandom, filters only alphanumeric characters, takes 10
+    id="${ts}_${rand}"      # combines timestamp and random block into a unique ID
 
-    # Enforce safe charset: keep only [A-Za-z0-9_-]
-    # (If anything odd slips in from environment/locale, it gets dropped.)
-    id="$(printf '%s' "$id" | LC_ALL=C tr -cd 'A-Za-z0-9_-')"
+    # Enforce safe charset: keep only [A-Za-z0-9_-] 
+    id="$(printf '%s' "$id" | LC_ALL=C tr -cd 'A-Za-z0-9_-')"   
 
-    # Last-resort fallback so we never emit empty
-    [ -z "$id" ] && id="$ts"
 
-    printf '%s\n' "$id"
+    [ -z "$id" ] && id="$ts"      # if for some reason ID is empty, use timestamp as fallback
+
+    printf '%s\n' "$id"      # prints the unique ID to standard output
 }
 
 
 #################################################
 # Function: delete_file
-# Description: Moves file/directory to recycle bin
-# Parameters: $@ - path(s) to file(s)/directory(ies)
-# Returns: 0 on overall success (per-item errors are reported/logged)
+# Description: Moves one or more files or directories to the recycle bin.
+#              Collects metadata, renames to a unique ID, and logs the action.
+# Parameters:
+#   $@ - One or more file or directory paths to delete.
+# Returns:
+#   0 on overall success (individual failures are logged and skipped)
 #################################################
+
 delete_file() {
-    if [ "$#" -eq 0 ]; then
+    if [ "$#" -eq 0 ]; then      # checks if no arguments (files) were provided
         echo -e "${RED}Error: No file specified${NC}"
         debug "Aborted delete: no file specified"
         return 1
     fi
 
-    for file_path in "$@"; do
+    for file_path in "$@"; do      # loops through all provided files
         debug "Attempting to delete '$file_path'"
-        [[ -z "$file_path" ]] && debug "Skipping empty file argument" && continue 
+        [[ -z "$file_path" ]] && debug "Skipping empty file argument" && continue      # skips empty arguments safely
 
-        # Prevent deleting the recycle bin itself
-        if [[ "$file_path" == "$RECYCLE_BIN_DIR"* ]]; then
+        
+        if [[ "$file_path" == "$RECYCLE_BIN_DIR"* ]]; then      # checks if the file is inside the recycle bin directory
             echo -e "${RED}Error: Cannot delete the recycle bin itself!${NC}"
             echo "$(date '+%Y-%m-%d %H:%M:%S') [DELETE] Blocked attempt to delete recycle bin: $file_path" >> "$RECYCLE_BIN_DIR/recyclebin.log"
             debug "Blocked delete: attempt to delete recycle bin itself"
             continue
         fi
 
-        # Check if file exists
-        if [ ! -e "$file_path" ]; then
+        
+        if [ ! -e "$file_path" ]; then      # verifies that the file exists before proceeding
             echo -e "${RED}Error: '$file_path' does not exist.${NC}"
             echo "$(date '+%Y-%m-%d %H:%M:%S') [DELETE] Failed: '$file_path' not found" >> "$RECYCLE_BIN_DIR/recyclebin.log"
             debug "Skipped delete: file not found"
             continue
         fi
 
-        # Check permissions (read/write on parent dir)
-        if [ ! -r "$file_path" ] || [ ! -w "$(dirname "$file_path")" ]; then
+        
+        if [ ! -r "$file_path" ] || [ ! -w "$(dirname "$file_path")" ]; then      # ensures read permission on file and write permission on its directory
             echo -e "${RED}Error: No permission to delete '$file_path'${NC}"
             echo "$(date '+%Y-%m-%d %H:%M:%S') [DELETE] Permission denied for '$file_path'" >> "$RECYCLE_BIN_DIR/recyclebin.log"
             debug "Skipped delete: insufficient permissions on '$file_path'"
@@ -221,21 +223,21 @@ delete_file() {
 
         # Gather metadata
         local original_name original_path deletion_date file_size file_type original_permissions original_owner
-        original_name=$(basename "$file_path")
-        original_path=$(dirname "$file_path")
-        deletion_date=$(date '+%Y-%m-%d %H:%M:%S')
-        file_size=$(stat -c %s "$file_path")
-        file_type=$([ -d "$file_path" ] && echo "directory" || echo "file")
-        original_permissions=$(stat -c %a "$file_path")
-        original_owner=$(stat -c %U:%G "$file_path")
+        original_name=$(basename "$file_path")      # extracts just the filename
+        original_path=$(dirname "$file_path")      # extracts the directory path of the file
+        deletion_date=$(date '+%Y-%m-%d %H:%M:%S')      # records the deletion timestamp
+        file_size=$(stat -c %s "$file_path")      # uses stat to get file size in bytes (%s gives size)
+        file_type=$([ -d "$file_path" ] && echo "directory" || echo "file")      # checks if target is a directory or a file
+        original_permissions=$(stat -c %a "$file_path")      # gets octal permission bits (like, 644)
+        original_owner=$(stat -c %U:%G "$file_path")      # gets owner and group in the format user:group
 
         local file_id
-        file_id=$(generate_unique_id)
+        file_id=$(generate_unique_id)      # generates a unique ID for storage name
 
         debug "Metadata collected: name='$original_name', size=${file_size}B, type=$file_type, id=$file_id"
 
-        # Move to storage
-        if ! mv "$file_path" "$FILES_DIR/$file_id" 2>/dev/null; then
+        
+        if ! mv "$file_path" "$FILES_DIR/$file_id" 2>/dev/null; then      # moves the file to recycle bin’s storage directory
             echo -e "${RED}Error: Failed to move '$file_path' to recycle bin${NC}"
             echo "$(date '+%Y-%m-%d %H:%M:%S') [DELETE] Failed to move '$file_path' to storage" >> "$RECYCLE_BIN_DIR/recyclebin.log"
             debug "Move failed: mv '$file_path' → '$FILES_DIR/$file_id'"
@@ -244,43 +246,50 @@ delete_file() {
 
         debug "File successfully moved into storage as ID $file_id"
 
-        # Append metadata
-        echo "$file_id,$original_name,$original_path,$deletion_date,$file_size,$file_type,$original_permissions,$original_owner" >> "$METADATA_FILE"
+        
+        echo "$file_id,$original_name,$original_path,$deletion_date,$file_size,$file_type,$original_permissions,$original_owner" >> "$METADATA_FILE"      # appends a new entry line to metadata.csv
 
-        # Log (persistent)
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [DELETE] Deleted '$original_name' (ID: $file_id)" >> "$RECYCLE_BIN_DIR/recyclebin.log"
+        
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [DELETE] Deleted '$original_name' (ID: $file_id)" >> "$RECYCLE_BIN_DIR/recyclebin.log"      # writes delete action to log
 
-        # User feedback
-        echo -e "${GREEN}'$original_name' moved to Recycle Bin (ID: $file_id)${NC}"
+        
+        echo -e "${GREEN}'$original_name' moved to Recycle Bin (ID: $file_id)${NC}"      # displays success message to user
         debug "Delete operation completed for '$original_name' (ID: $file_id)"
     done
 
-    return 0
+    return 0      
 }
 
 
 #################################################
 # Function: list_recycled
-# Description: Lists all items in recycle bin
-# Parameters: None
-# Returns: 0 on success
+# Description: Lists the contents of the recycle bin in a formatted table.
+#              Supports detailed view, sorting, and reverse order options.
+# Parameters:
+#   --detailed     Show full metadata for each item.
+#   --sort=<mode>  Sort by "name", "date", or "size" (default: none).
+#   --reverse|-r   Reverse the sort order.
+# Returns:
+#   0 on success
+#   1 if metadata file missing or unreadable
 #################################################
-list_recycled() {
-    local detailed_mode=false
-    local sort_option="none"
-    local reverse_mode=false
 
-    for arg in "$@"; do
+list_recycled() {
+    local detailed_mode=false      # flag for showing detailed output
+    local sort_option="none"       # default sort order
+    local reverse_mode=false       # flag for reversing order
+
+    for arg in "$@"; do      # parses command-line arguments
         [[ -z "$arg" ]] && debug "Skipping empty flag" && continue
         case "$arg" in
             --detailed)
-                detailed_mode=true
+                detailed_mode=true      # enables detailed mode
                 ;;
             --sort=*)
-                sort_option="${arg#--sort=}"
+                sort_option="${arg#--sort=}"      # extracts sorting field (after "=")
                 ;;
             --reverse|-r)
-                reverse_mode=true
+                reverse_mode=true      # enables reverse order mode
                 ;;
             *)
                 echo -e "${RED}Error: Unknown option '$arg'${NC}"
@@ -294,7 +303,7 @@ list_recycled() {
     debug "List requested with sort='$sort_option', reverse=$reverse_mode, detailed=$detailed_mode"
 
     case "$sort_option" in
-        none|name|date|size) ;;
+        none|name|date|size) ;;      # only allow known sort modes
         *)
             echo -e "${RED}Error: Invalid sort option '$sort_option'${NC}"
             debug "User entered invalid sort option: $sort_option"
@@ -302,7 +311,7 @@ list_recycled() {
             ;;
     esac
 
-    if [ ! -s "$METADATA_FILE" ] || [ "$(wc -l < "$METADATA_FILE")" -le 2 ]; then
+    if [ ! -s "$METADATA_FILE" ] || [ "$(wc -l < "$METADATA_FILE")" -le 2 ]; then      # -s checks non-empty file, wc -l counts lines
         echo "Recycle bin is empty."
         debug "Metadata file is empty — nothing to list"
         return 0
@@ -312,45 +321,45 @@ list_recycled() {
     echo
 
     local data
-    data=$(tail -n +3 "$METADATA_FILE")
+    data=$(tail -n +3 "$METADATA_FILE")      # tail -n +3 skips the first two header lines
     debug "Loaded $(echo "$data" | wc -l) recycle bin entries from metadata"
 
     case "$sort_option" in
         name)
             debug "Sorting by name (A-Z, case-insensitive)"
-            data=$(echo "$data" | LC_ALL=C sort -t ',' -f -k2,2 -s)
+            data=$(echo "$data" | LC_ALL=C sort -t ',' -f -k2,2 -s)      # sort by second column (name); LC_ALL=C ensures consistent collation
             ;;
         date)
             debug "Sorting by date (newest first)"
-            data=$(echo "$data" | LC_ALL=C sort -t ',' -k4,4r -s)
+            data=$(echo "$data" | LC_ALL=C sort -t ',' -k4,4r -s)      # sort by fourth column (date), reversed order (r)
             ;;
         size)
             debug "Sorting by size (largest first)"
-            data=$(echo "$data" | LC_ALL=C sort -t ',' -k5,5nr -s)
+            data=$(echo "$data" | LC_ALL=C sort -t ',' -k5,5nr -s)      # sort by fifth column (size), numeric (n), reversed (r)
             ;;
     esac
 
     if [ "$reverse_mode" = true ]; then
         debug "Reverse mode enabled — reversing output order"
-        data=$(echo "$data" | tac)
+        data=$(echo "$data" | tac)      # tac reverses the order of lines
     fi
 
     local total_size=0
     local count=0
 
-    if ! $detailed_mode; then
+    if ! $detailed_mode; then      # standard compact view
         printf "%-18s | %-20s | %-19s | %-10s\n" "ID (first 18 chars)" "Name" "Deleted At" "Size"
         printf "%s\n" "--------------------------------------------------------------------------------"
         while IFS=',' read -r id name path date size type perms owner; do
             [[ -z "$id" ]] && continue
-            local human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
+            local human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")      # numfmt converts bytes to human-readable size (e.g. 4K)
             printf "%-18s… | %-20s | %-19s | %-10s\n" "${id:0:18}" "$name" "$date" "$human_size"
             total_size=$(( total_size + size ))
             count=$(( count + 1 ))
         done <<< "$data"
         echo
         echo "(Tip: use --detailed to view full IDs)"
-    else
+    else      # detailed table mode
         debug "Showing results in detailed mode"
         printf "%-21s | %-20s | %-40s | %-19s | %-10s | %-8s | %-10s | %-12s\n" \
                "ID" "Name" "Path" "Deleted At" "Size" "Type" "Perms" "Owner"
@@ -358,7 +367,7 @@ list_recycled() {
         while IFS=',' read -r id name path date size type perms owner; do
             [[ -z "$id" ]] && continue
             local human_size=$(numfmt --to=iec --suffix=B "$size" 2>/dev/null || echo "${size}B")
-            local short_path=$(printf "%.40s" "$path")
+            local short_path=$(printf "%.40s" "$path")      # trims long paths to 40 characters
             printf "%-18s | %-20s | %-40s | %-19s | %-10s | %-8s | %-10s | %-12s\n" \
                    "$id" "$name" "$short_path" "$date" "$human_size" "$type" "$perms" "$owner"
             total_size=$(( total_size + size ))
@@ -376,6 +385,7 @@ list_recycled() {
 
 
 
+
 #################################################
 # Function: restore_file
 # Description: Restores file from recycle bin by ID or name pattern
@@ -384,40 +394,41 @@ list_recycled() {
 #   <pattern>     -> Restore by filename substring (case-insensitive)
 # Returns: 0 on success, 1 on failure
 #################################################
+
 restore_file() {
-    # Skip empty or accidental arg
-    [[ -z "$1" ]] && debug "Skipping empty restore argument" && return 1
+    
+    [[ -z "$1" ]] && debug "Skipping empty restore argument" && return 1      # exits if no argument is provided
 
-    local force_id=false
-    local file_id=""
+    local force_id=false      # flag for ID-based restoration
+    local file_id=""          # stores either the ID or name pattern
 
-    # Parse flags (order flexible)
-    for arg in "$@"; do
+    
+    for arg in "$@"; do      # loops through all arguments
         case "$arg" in
-            --id)  force_id=true ;;  # force exact ID restore
-            *)     file_id="$arg"  ;;  # treat ANY other arg as target
+            --id)  force_id=true ;;      # enables ID-only restore mode
+            *)     file_id="$arg"  ;;    # any other argument is treated as ID or filename pattern
         esac
     done
 
-    # Basic safety
-    if [[ -z "$file_id" ]]; then
+    
+    if [[ -z "$file_id" ]]; then      # checks if no ID or pattern was provided
         echo -e "${RED}Error: No file ID or pattern specified${NC}"
         debug "Restore aborted: missing argument"
         return 1
     fi
 
-    if [[ ! -f "$METADATA_FILE" || $(wc -l < "$METADATA_FILE") -le 2 ]]; then
+    if [[ ! -f "$METADATA_FILE" || $(wc -l < "$METADATA_FILE") -le 2 ]]; then      # ensures metadata exists and has data
         echo -e "${YELLOW}Recycle bin is empty or metadata missing.${NC}"
         debug "Restore aborted: empty metadata"
         return 1
     fi
 
-    # Clean CR + spaces
-    file_id="${file_id%%[[:space:]]}"
-    file_id="${file_id//$'\r'/}"
+    
+    file_id="${file_id%%[[:space:]]}"      # trims trailing spaces
+    file_id="${file_id//$'\r'/}"           # removes carriage return characters (in case of Windows line endings)
 
-    # --- Auto-detect if argument looks like a valid ID (timestamp_10chars) ---
-    if [[ "$file_id" =~ ^[0-9]{10}_[A-Za-z0-9]{10}$ ]]; then
+    
+    if [[ "$file_id" =~ ^[0-9]{10}_[A-Za-z0-9]{10}$ ]]; then      # regex check: 10 digits + underscore + 10 alphanumeric chars
         debug "Detected ID pattern '$file_id' — forcing ID mode"
         force_id=true
     fi
@@ -428,154 +439,165 @@ restore_file() {
     if $force_id; then
         # Exact ID restore
         entry=$(
-            tail -n +3 "$METADATA_FILE" \
+    # skips headers and removes carriage returns
+        tail -n +3 "$METADATA_FILE" \
             | tr -d '\r' \
             | awk -F',' -v id="$file_id" 'tolower($1) == tolower(id) { print; exit }'
         )
+
         if [[ -z "$entry" ]]; then
             echo -e "${RED}Error: No matching entry found for exact ID '$file_id'${NC}"
             debug "No entry for exact ID '$file_id'"
             return 1
         fi
     else
-        # PATTERN search -- name-based, case-insensitive substring
+        
         debug "Running pattern match for '$file_id'"
-        entry=$(tail -n +3 "$METADATA_FILE" | awk -F',' -v term="${file_id,,}" 'tolower($2) ~ term {print}')
+        entry=$(tail -n +3 "$METADATA_FILE" | awk -F',' -v term="${file_id,,}" 'tolower($2) ~ term {print}')      # finds all names containing the search term
         if [[ -z "$entry" ]]; then
             echo -e "${RED}No matching items found for pattern '$file_id'${NC}"
             debug "No match on pattern '$file_id'"
             return 1
         fi
 
-        # If multiple results, interactive choice
-        if [[ $(echo "$entry" | wc -l) -gt 1 ]]; then
+        
+        if [[ $(echo "$entry" | wc -l) -gt 1 ]]; then      # if multiple matches are found
             echo "Multiple matches found:"
-            IFS=$'\n' read -r -d '' -a results <<< "$entry"
+            IFS=$'\n' read -r -d '' -a results <<< "$entry"      # reads all matching entries into an array
             for i in "${!results[@]}"; do
-                local name=$(echo "${results[$i]}" | cut -d',' -f2)
+                local name=$(echo "${results[$i]}" | cut -d',' -f2)      # extracts the name field
                 printf " [%d] %s\n" "$((i+1))" "$name"
             done
             read -p "Select an entry to restore (1-${#results[@]}): " choice
-            (( choice >= 1 && choice <= ${#results[@]} )) || {
+            (( choice >= 1 && choice <= ${#results[@]} )) || {      # validates user selection range
                 echo "Invalid choice. Aborting."
                 debug "Restore aborted: invalid user selection"
                 return 1
             }
-            entry="${results[$((choice-1))]}"
+            entry="${results[$((choice-1))]}"      # picks the chosen entry
         fi
     fi
 
-    # Read metadata fields properly
-    IFS=',' read -r file_id original_name original_path deletion_date file_size file_type perms owner <<< "$entry"
-    local source_path="$FILES_DIR/$file_id"
-    local destination_path="$original_path/$original_name"
+    
+    IFS=',' read -r file_id original_name original_path deletion_date file_size file_type perms owner <<< "$entry"      # splits metadata fields into variables
+    local source_path="$FILES_DIR/$file_id"      # path in the recycle bin
+    local destination_path="$original_path/$original_name"      # original restore path
 
-    [[ ! -e "$source_path" ]] && echo -e "${RED}Error: File missing in storage${NC}" \
-        && debug "Stored file missing for ID '$file_id'" && return 1
+    [[ ! -e "$source_path" ]] && echo -e "${RED}Error: File missing in storage${NC}" && debug "Stored file missing for ID '$file_id'" && return 1
 
-    [[ ! -d "$original_path" ]] && mkdir -p "$original_path"
+    [[ ! -d "$original_path" ]] && mkdir -p "$original_path"      # recreates original directory if missing
 
-    mv "$source_path" "$destination_path" 2>/dev/null || {
+    mv "$source_path" "$destination_path" 2>/dev/null || {      # moves file back to original location
         echo -e "${RED}Failed to restore file${NC}"
         debug "mv failed from '$source_path' to '$destination_path'"
         return 1
     }
 
-    chmod "$perms" "$destination_path" 2>/dev/null
-    awk -F',' -v id="$file_id" 'NR<=2 {print; next} $1 != id' "$METADATA_FILE" > "${METADATA_FILE}.tmp" \
-        && mv "${METADATA_FILE}.tmp" "$METADATA_FILE"
+    chmod "$perms" "$destination_path" 2>/dev/null      # restores original file permissions
+    awk -F',' -v id="$file_id" 'NR<=2 {print; next} $1 != id' "$METADATA_FILE" > "${METADATA_FILE}.tmp" && mv "${METADATA_FILE}.tmp" "$METADATA_FILE"     # removes restored entry from metadata
+       
 
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [RESTORE] Restored '$original_name'" >> "$RECYCLE_BIN_DIR/recyclebin.log"
-    echo -e "${GREEN}Restored: ${NC}$original_name → $destination_path"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [RESTORE] Restored '$original_name'" >> "$RECYCLE_BIN_DIR/recyclebin.log"      # logs restore action
+    echo -e "${GREEN}Restored: ${NC}$original_name → $destination_path"      # shows success message
     debug "Restore complete for '$original_name' (ID $file_id)"
     return 0
 }
 
 
+
 #################################################
 # Function: empty_recyclebin
-# Description: Permanently deletes all items
-# Parameters: None
-# Returns: 0 on success
+# Description: Permanently deletes items from the recycle bin.
+#              Can delete all, a specific ID, or items matching a pattern.
+# Parameters:
+#   $1 (optional) - File ID, or --pattern=<text> for filtered deletion.
+# Returns:
+#   0 on success
+#   1 on failure or user cancellation
 #################################################
 
 
 empty_recyclebin() {
-    local target_id="$1"
-    local pattern=""
-    local data
+    local target_id="$1"      # stores either an item ID or a flag
+    local pattern=""          # stores text pattern for --pattern search
+    local data                # holds the metadata entries
 
-    # detect pattern flag and pattern
-    if [[ "$target_id" == --pattern=* ]]; then
-        pattern="${target_id#--pattern=}"
-        target_id=""
+    
+    if [[ "$target_id" == --pattern=* ]]; then      # checks if the first argument starts with --pattern=
+        pattern="${target_id#--pattern=}"           # extracts pattern text (everything after =)
+        target_id=""                                # clears target_id so only pattern mode is used
     fi
 
     # load metadata entries (skip first 2 header lines)
-    data=$(tail -n +3 "$METADATA_FILE")
+    data=$(tail -n +3 "$METADATA_FILE")      # tail -n +3 skips headers to only get real metadata entries
 
-    # if user passed an ID, try exact match
-    if [[ -n "$target_id" ]]; then
-        local match=$(echo "$data" | grep -i "^$target_id," || true)
+    
+    if [[ -n "$target_id" ]]; then      # if target_id is not empty, try to match it exactly
+        local match=$(echo "$data" | grep -i "^$target_id," || true)      # grep -i ignores case, looks for line starting with ID
         if [ -z "$match" ]; then
             echo "No matching items found for '$target_id'. Nothing deleted."
             return 0
         fi
         echo "The following item will be permanently deleted:"
-        echo "$match" | cut -d',' -f1,2,4
-        echo -n "Are you sure? (y/N): "
-    elif [[ -n "$pattern" ]]; then
-        local match=$(echo "$data" | grep -i "$pattern" || true)
+        echo "$match" | cut -d',' -f1,2,4      # prints ID, name, and deletion date columns
+        echo -n "Are you sure? (y/N): "        # confirmation prompt
+
+    elif [[ -n "$pattern" ]]; then      # if pattern mode is used
+        local match=$(echo "$data" | grep -i "$pattern" || true)      # finds all entries whose metadata matches the pattern (case-insensitive)
         if [ -z "$match" ]; then
             echo "No matching items found for '$pattern'. Nothing deleted."
             return 0
         fi
         echo "The following item(s) will be permanently deleted:"
-        echo "$match" | cut -d',' -f1,2,4
-        echo -n "Are you sure? (y/N): "
-    else
+        echo "$match" | cut -d',' -f1,2,4      # shows ID, name, and deletion date columns
+        echo -n "Are you sure? (y/N): "        # confirmation prompt
+
+    else      # no argument provided -> delete all
         echo -n "Are you sure you want to permanently delete ALL items in the recycle bin? (y/N): "
-        match="$data"
+        match="$data"      # assigns all metadata entries to be deleted
     fi
 
-    read confirm
-    [[ "$confirm" != "y" && "$confirm" != "Y" ]] && echo "Operation canceled." && return 0
+    read confirm      # reads user input for confirmation
+    [[ "$confirm" != "y" && "$confirm" != "Y" ]] && echo "Operation canceled." && return 0      # cancels if not 'y' or 'Y'
 
     local total_size=0
     local count=0
 
     echo "Deleted items:"
-    while IFS=',' read -r id name path date size type perms owner; do
-        rm -rf "$FILES_DIR/$id"
-        total_size=$(( total_size + size ))
-        count=$(( count + 1 ))
+    while IFS=',' read -r id name path date size type perms owner; do      # loops through each matching line in metadata
+        rm -rf "$FILES_DIR/$id"      # force deletes corresponding stored file/directory by ID
+        total_size=$(( total_size + size ))      # keeps running total of bytes deleted
+        count=$(( count + 1 ))                  # increments deleted item counter
 
-        echo " - $name (ID: $id)"   # Human-readable summary
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [EMPTY] Deleted '$name' (ID: $id)" >> "$RECYCLE_BIN_DIR/recyclebin.log"  # LOG
+        echo " - $name (ID: $id)"      # prints deleted item summary
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [EMPTY] Deleted '$name' (ID: $id)" >> "$RECYCLE_BIN_DIR/recyclebin.log"      # logs deletion
     done <<< "$match"
 
     # blank line before final summary
     echo
 
-    grep -v -f <(echo "$match" | cut -d',' -f1) "$METADATA_FILE" > "${METADATA_FILE}.tmp"
-    mv "${METADATA_FILE}.tmp" "$METADATA_FILE"
+    grep -v -f <(echo "$match" | cut -d',' -f1) "$METADATA_FILE" > "${METADATA_FILE}.tmp"      # grep -v excludes matching IDs from metadata; -f reads patterns from stdin
+    mv "${METADATA_FILE}.tmp" "$METADATA_FILE"      # replaces metadata file with updated version
 
-    echo "Deleted $count items ($(numfmt --to=iec --suffix=B $total_size))"
+    echo "Deleted $count items ($(numfmt --to=iec --suffix=B $total_size))"      # shows total deleted items and human-readable total size
     return 0
 }
+
 
 
 
 #################################################
 # Function: search_recycled
 # Description: Searches for files in recycle bin
-# Parameters: $1 - search pattern
+# Parameters: $1 - search pattern (optional)
+#             --date-from=YYYY-MM-DD
+#             --date-to=YYYY-MM-DD
+#             --detailed (optional)
 # Returns: 0 on success
 #################################################
 
-
 search_recycled() {
-    # Silent skip if empty arg accidentally passed (from verbose cleanup or user mistake)
+    # silently skip if called with no argument
     [[ -z "$1" ]] && return 0
 
     local name_pattern=""
@@ -583,8 +605,9 @@ search_recycled() {
     local date_to=""
     local detailed_mode=false
 
+    # parse arguments
     for arg in "$@"; do
-        [[ -z "$arg" ]] && continue  # silent skip
+        [[ -z "$arg" ]] && continue
         case "$arg" in
             --date-from=*) date_from="${arg#--date-from=}" ;;
             --date-to=*)   date_to="${arg#--date-to=}" ;;
@@ -603,9 +626,9 @@ search_recycled() {
 
     local data
     data=$(tail -n +3 "$METADATA_FILE" | tr -d '\r')
-
     debug "Loaded $(echo "$data" | wc -l) items for searching"
 
+    # filter by name (case-insensitive substring)
     if [[ -n "$name_pattern" ]]; then
         debug "Filtering by name pattern: $name_pattern"
         local filtered=""
@@ -617,6 +640,7 @@ search_recycled() {
         data="$filtered"
     fi
 
+    # filter by date range
     if [[ -n "$date_from" ]]; then
         debug "Applying date-from filter: $date_from (inclusive)"
         data=$(echo "$data" | awk -F',' -v df="$date_from" '$4 >= df')
@@ -626,6 +650,7 @@ search_recycled() {
         data=$(echo "$data" | awk -F',' -v dt="$date_to" '$4 <= dt')
     fi
 
+    # if nothing matched
     if [[ -z "$data" ]]; then
         debug "No results matched filters"
         if [[ -n "$name_pattern" && (-n "$date_from" || -n "$date_to") ]]; then
@@ -673,20 +698,15 @@ search_recycled() {
 }
 
 
-#################################################
-# Function: interactive_menu
-# Description: Provides a text-based menu for users
-#              to manage the recycle bin interactively.
-# Parameters: None
-# Returns: 0 on exit
-#################################################
+
+
 interactive_menu() {
-    clear
+    clear      # clears the terminal screen
     echo "==============================================="
-    echo "         Linux Recycle Bin - Interactive Mode  "
+    echo "       Linux Recycle Bin - Interactive Mode    "
     echo "==============================================="
-    echo "Version: $VERSION"
-    echo "Recycle Bin: $RECYCLE_BIN_DIR"
+    echo "Version: $VERSION"      # prints current script version
+    echo "Recycle Bin: $RECYCLE_BIN_DIR"      # shows recycle bin directory location
     echo
 
     # Strict yes/no helper: accepts only y or n (case-insensitive). Empty is invalid.
@@ -694,18 +714,17 @@ interactive_menu() {
         local prompt="$1"
         local ans
         while true; do
-            read -p "$prompt (y/N): " ans
-            # Normalize to lowercase and trim leading/trailing whitespace
-            ans="$(echo -n "$ans" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+            read -p "$prompt (y/N): " ans      # asks user a yes/no question
+            ans="$(echo -n "$ans" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"      # converts input to lowercase and trims spaces
             case "$ans" in
-                y) return 0 ;;   # yes
-                n) return 1 ;;   # no
-                *) echo -e "${YELLOW}Invalid input. Please answer with y or n.${NC}" 1>&2 ;;
+                y) return 0 ;;      # returns success if 'y' or 'Y'
+                n) return 1 ;;      # returns failure if 'n' or 'N'
+                *) echo -e "${YELLOW}Invalid input. Please answer with y or n.${NC}" 1>&2 ;;      # prints warning for invalid inputs
             esac
         done
     }
 
-    while true; do
+    while true; do      # infinite loop for menu navigation until user exits
         echo "Choose an option:"
         echo " 1) Delete a file"
         echo " 2) List recycled items"
@@ -721,94 +740,94 @@ interactive_menu() {
         echo " 0) Exit"
         echo
 
-        read -p "Enter your choice [0-11]: " choice
+        read -p "Enter your choice [0-11]: " choice      # reads user menu choice
         echo
 
         case "$choice" in
             1)
-                read -p "Enter the full path(s) of the file(s) to delete: " -a files
-                delete_file "${files[@]}"
+                read -p "Enter the full path(s) of the file(s) to delete: " -a files      # reads one or more paths into an array
+                delete_file "${files[@]}"      # calls delete_file function with all paths
                 ;;
             2)
-                if ask_yes_no "Show detailed view?"; then
+                if ask_yes_no "Show detailed view?"; then      # asks if user wants detailed listing
                     list_recycled --detailed
                 else
                     list_recycled
                 fi
                 ;;
             3)
-                read -p "Enter filename or --id <ID> to restore: " args
-                restore_file $args
+                read -p "Enter filename or --id <ID> to restore: " args      # asks user what to restore
+                restore_file $args      # calls restore function with provided argument
                 ;;
             4)
-                read -p "Enter search term: " pattern
-                if ask_yes_no "Filter by date range?"; then
-                    read -p "From date (YYYY-MM-DD): " from
-                    read -p "To date (YYYY-MM-DD): " to
-                    search_recycled "$pattern" --date-from="$from" --date-to="$to"
+                read -p "Enter search term: " pattern      # asks for search keyword
+                if ask_yes_no "Filter by date range?"; then      # asks if user wants to filter by dates
+                    read -p "From date (YYYY-MM-DD): " from      # reads starting date
+                    read -p "To date (YYYY-MM-DD): " to          # reads ending date
+                    search_recycled "$pattern" --date-from="$from" --date-to="$to"      # performs search with date filters
                 else
-                    search_recycled "$pattern"
+                    search_recycled "$pattern"      # performs search without date filters
                 fi
                 ;;
             5)
-                read -p "Enter ID or --pattern=<text> (leave blank for ALL): " arg
-                empty_recyclebin "$arg"
+                read -p "Enter ID or --pattern=<text> (leave blank for ALL): " arg      # asks user what to empty (single, pattern, or all)
+                empty_recyclebin "$arg"      # calls empty function
                 ;;
             6)
-                show_statistics
+                show_statistics      # displays overall statistics
                 ;;
             7)
-                if ask_yes_no "Run dry-run mode first?"; then
+                if ask_yes_no "Run dry-run mode first?"; then      # offers safe dry-run before cleanup
                     auto_cleanup --dry-run
                 else
                     auto_cleanup
                 fi
                 ;;
             8)
-                read -p "Enter file ID to preview: " fid
-                preview_file "$fid"
+                read -p "Enter file ID to preview: " fid      # asks for file ID
+                preview_file "$fid"      # previews contents or info of file
                 ;;
             9)
-                config_command show
+                config_command show      # displays current config values (quota, retention)
                 ;;
             10)
                 echo "Select the configuration to change:"
                 echo " [1] Quota"
                 echo " [2] Retention"
-                read -p "Enter your choice [1-2]: " cfg_choice
+                read -p "Enter your choice [1-2]: " cfg_choice      # asks which config to change
 
                 case "$cfg_choice" in
                     1)
-                        read -p "Enter new quota value (in MB): " value
-                        config_command set quota "$value"
+                        read -p "Enter new quota value (in MB): " value      # reads quota value
+                        config_command set quota "$value"      # updates quota in config file
                         ;;
                     2)
-                        read -p "Enter new retention value (in days): " value
-                        config_command set retention "$value"
+                        read -p "Enter new retention value (in days): " value      # reads retention value
+                        config_command set retention "$value"      # updates retention days
                         ;;
                     *)
-                        echo -e "${RED}Invalid input. Please choose either 1 or 2.${NC}"
+                        echo -e "${RED}Invalid input. Please choose either 1 or 2.${NC}"      # warns about invalid selection
                         ;;
                 esac
                 ;;
             11)
-                display_help
+                display_help      # prints help screen
                 ;;
             0)
-                echo "Exiting interactive mode. Goodbye!"
-                sleep 1
-                break
+                echo "Exiting interactive mode. Goodbye!"      # bye bye message
+                sleep 1      # short pause before closing
+                break        # exits menu loop
                 ;;
             *)
-                echo -e "${RED}Invalid option. Please choose between 0 and 11.${NC}"
+                echo -e "${RED}Invalid option. Please choose between 0 and 11.${NC}"      # handles invalid inputs
                 ;;
         esac
 
         echo
-        read -p "Press Enter to continue..." temp
+        read -p "Press Enter to continue..." temp      # pauses before clearing and redrawing menu
         clear
         echo "==============================================="
-        echo "       Linux Recycle Bin - Interactive Mode    "
+        echo "      Linux Recycle Bin - Interactive Mode     "
         echo "==============================================="
         echo
     done
@@ -821,6 +840,7 @@ interactive_menu() {
 # Parameters: None
 # Returns: 0
 #################################################
+
 display_help() {
     local cur_quota cur_retention
     cur_quota=$(grep -E '^MAX_SIZE_MB=' "$CONFIG_FILE" 2>/dev/null | cut -d'=' -f2)
@@ -899,8 +919,16 @@ COMMANDS:
     help
         Display this help message.
 
+OPTIONS:
+
+    --verbose
+        Enable debug output (yellow [DEBUG] messages) to stderr.
+        Use this when you want to trace internal operations.
+        Example: $0 list --verbose
+                 $0 delete myfile.txt --verbose
+
 --------------------------------------------------
-INTERACTIVE MENU MODE
+             INTERACTIVE MENU MODE
 --------------------------------------------------
 
     You can manage the recycle bin interactively through a simple menu system.
@@ -935,6 +963,7 @@ NOTES:
 EOF
     return 0
 }
+
 
 
 #################################################
@@ -1164,8 +1193,12 @@ debug() {
 # Returns: Exit code
 #################################################
 main() {
-    # Initialize recycle bin
-    initialize_recyclebin
+
+    # Only auto-initialize recycle bin if missing
+    if [ ! -d "$RECYCLE_BIN_DIR" ]; then
+        initialize_recyclebin
+    fi
+
 
     # verbose mode
 
@@ -1185,6 +1218,10 @@ main() {
 
     # Parse command line arguments
     case "$1" in
+        init|initialize)
+            initialize_recyclebin
+            return 0
+            ;;
         delete)
             shift
             delete_file "$@"

@@ -33,16 +33,260 @@ $HOME/.recycle_bin/
 ## 3. Data flow diagrams (ASCII)
 
 Delete operation:
-User -> recycle_bin.sh (delete) -> validate -> mv file -> write metadata row -> log -> optional auto_cleanup
+User 
+  ↓
+recycle_bin.sh (delete)
+  ↓
+validate file existence & permissions
+  ↓
+generate_unique_id()
+  ↓
+mv file → ~/.recycle_bin/files/<ID>
+  ↓
+append metadata row → metadata.db
+  ↓
+log delete action → recyclebin.log
+  ↓
+(optional) auto_cleanup()
 
-Restore operation:
-User -> recycle_bin.sh (restore <ID>) -> lookup metadata -> mv file back -> restore perms -> remove metadata row -> log
 
-Search/list/statistics:
-User -> script -> read metadata.db -> filter/aggregate -> stdout -> log (search)
+List Operation (list_recycled) 
 
-Auto-cleanup:
-script -> read config (RETENTION_DAYS) -> compute cutoff_date -> scan metadata -> delete matched files -> remove metadata rows -> log & summary
+User 
+  ↓
+recycle_bin.sh (list)
+  ↓
+read metadata.db (skip headers)
+  ↓
+apply sorting (--sort, --reverse)
+  ↓
+format rows (detailed or compact)
+  ↓
+display table to user (stdout)
+
+
+Restore Operation (restore_file)
+
+User 
+  ↓
+recycle_bin.sh (restore [--id] <pattern>)
+  ↓
+read metadata.db
+  ↓
+search by ID or name substring
+     ↳ if multiple matches → user selects one
+  ↓
+mv ~/.recycle_bin/files/<ID> → original_path/original_name
+  ↓
+chmod perms & remove metadata entry
+  ↓
+log restore action → recyclebin.log
+  ↓
+output success message
+
+
+
+Search Operation (search_recycled)
+
+User 
+  ↓
+recycle_bin.sh (search [pattern] [--date-from|--date-to])
+  ↓
+read metadata.db
+  ↓
+filter rows by:
+     - name substring (case-insensitive)
+     - date range (if given)
+  ↓
+format output (simple or detailed)
+  ↓
+display results to user
+
+
+
+Empty Operation (empty_recyclebin)
+
+User 
+  ↓
+recycle_bin.sh (empty [ID] [--pattern])
+  ↓
+load metadata.db entries
+  ↓
+if ID or pattern → match subset
+else → select all
+  ↓
+confirm (y/N)
+  ↓
+rm -rf ~/.recycle_bin/files/<matched_IDs>
+  ↓
+remove entries from metadata.db
+  ↓
+log deletions → recyclebin.log
+  ↓
+print summary (count + total size)
+
+
+
+Statistics Operation (show_statistics)
+
+
+User 
+  ↓
+recycle_bin.sh (stats)
+  ↓
+read metadata.db
+  ↓
+count files / dirs / total size
+  ↓
+read quota & retention from config
+  ↓
+compute 
+  ↓
+format summary
+  ↓
+display to user
+
+
+
+Auto Cleanup (auto_cleanup)
+
+User OR delete_file (post-deletion)
+  ↓
+read retention days from config
+  ↓
+compute cutoff date (now - RETENTION_DAYS)
+  ↓
+read metadata.db
+  ↓
+find entries older than cutoff
+  ↓
+if --dry-run → list what would be deleted
+else:
+   rm files + remove metadata entries
+   log each deletion
+  ↓
+print cleanup summary
+
+
+
+
+Preview Operation (preview_file)
+
+User 
+  ↓
+recycle_bin.sh (preview <ID>)
+  ↓
+read metadata.db → find entry by ID
+  ↓
+check file type:
+    ├── directory → print notice
+    └── file → check mime type
+          ├── text → head -n 10
+          └── binary → file info + size
+  ↓
+display preview output
+
+
+
+Config Operation (config_command)
+
+
+User 
+  ↓
+recycle_bin.sh (config [show|set quota|set retention])
+  ↓
+if show → read config and display
+if set → validate integer
+        → sed -i update value
+  ↓
+confirm update to user
+
+
+Version Operation (version_command)
+
+User 
+  ↓
+recycle_bin.sh (version)
+  ↓
+print version number
+  ↓
+display key paths:
+   - metadata file
+   - files directory
+   - config file
+
+
+
+Help Operation (display_help)
+
+User 
+  ↓
+recycle_bin.sh (help)
+  ↓
+read config for current quota/retention
+  ↓
+print full command reference
+  ↓
+include interactive menu info + --verbose option
+  ↓
+exit
+
+
+Interactive Menu (interactive_menu)
+
+User 
+  ↓
+recycle_bin.sh (interactive / menu)
+  ↓
+display numbered options
+  ↓
+read user choice
+  ↓
+dispatch corresponding function:
+    1 → delete_file
+    2 → list_recycled
+    3 → restore_file
+    4 → search_recycled
+    5 → empty_recyclebin
+    6 → show_statistics
+    7 → auto_cleanup
+    8 → preview_file
+    9 → config_command show
+   10 → config_command set
+   11 → display_help
+    0 → exit
+  ↓
+loop until exit
+
+
+
+Initialization (initialize_recyclebin)
+
+System OR User (init command)
+  ↓
+check if ~/.recycle_bin exists
+  ↓
+if missing:
+    mkdir structure:
+       ~/.recycle_bin/
+       ~/.recycle_bin/files/
+    create:
+       metadata.db (with headers)
+       config (quota + retention)
+       recyclebin.log
+  ↓
+echo success message
+
+
+Debug Function (debug)
+
+Any function (when --verbose enabled)
+  ↓
+call debug "<message>"
+  ↓
+if VERBOSE=true → print yellow [DEBUG] line to stderr
+else → no output
+
 
 ---
 
@@ -68,166 +312,386 @@ Notes:
 
 ---
 
-## 5. Function descriptions (short)
+## 5. Function Descriptions (Short)
+-----------------------------
+
 - initialize_recyclebin(): create directories, default config, and metadata header.
 - generate_unique_id(): returns epoch_random string used as stored filename.
 - delete_file(...): validate, collect stat metadata, move item to files/<ID>, append metadata, log.
 - list_recycled(...): read metadata, optional --detailed and --sort modes, pretty-print, compute totals.
-- restore_file(<ID>): find entry, move files/<ID> back to original path, restore perms, remove metadata, log.
+- restore_file(<ID|pattern>): find entry (by ID or name), move files/<ID> back to original path, restore perms, remove metadata, log.
 - empty_recyclebin([ID|--pattern=...]): confirm, remove matching files, update metadata, summary & log.
 - search_recycled(...): filter metadata by name and/or date-range, prints table, logs search.
-- display_help(): CLI usage text.
+- display_help(): CLI usage text including command descriptions, interactive mode, and --verbose option.
 - show_statistics(): compute totals, quota percentage, type breakdown, oldest/newest, avg file size.
-- auto_cleanup([--dry-run]): remove entries older than RETENTION_DAYS (from config), supports dry-run.
-- preview_file(<ID>): for text -> head -n 10; binary -> file(1) output + human size.
+- auto_cleanup([--dry-run]): remove entries older than RETENTION_DAYS (from config), supports dry-run mode, logs actions.
+- preview_file(<ID>): for text → head -n 10; binary → file(1) output + human-readable size.
+- config_command(show|set): read or update MAX_SIZE_MB / RETENTION_DAYS in config, validate integers, confirm updates.
+- version_command(): print version number and important paths (metadata, files, config).
+- interactive_menu(): text-based interface for managing recycle bin (calls other functions interactively).
+- debug(<message>): print yellow [DEBUG] messages to stderr when --verbose is active.
+- main(...): entry point; parses arguments, handles command routing, manages verbose mode setup.
+
 
 ---
 
-## 6. Design decisions and rationale
+## 6. Design Decisions and Rationale
+------------------------------
+
 - Metadata as CSV-like plain text:
-  - Pros: human-readable, easy to edit, no DB dependency.
-  - Cons: concurrency and escaping special characters need care. Current CSV usage presumes filenames are not containing newlines; commas inside names would disrupt columns. Simplicity chosen due to shell environment.
-- Storage separation:
-  - Files stored by unique ID, preventing name collisions.
-- Unique ID = epoch + random:
-  - Low collision risk, sortable by time.
-- Config in plain text key=value:
-  - Easy to parse with grep/cut, edit by user.
-- Use standard Unix tools (file, numfmt, awk, sort):
-  - Maximizes portability and reduces dependencies.
-- Auto-cleanup runs in background after delete:
-  - Keeps delete fast; avoids blocking user commands.
+  - Pros: human-readable, easy to inspect or edit manually, no external DB dependency.
+  - Cons: limited escaping; commas or newlines in filenames can break structure.
+  - Rationale: chosen for simplicity and transparency in a shell-only environment.
 
----
+- Storage separation (data vs. metadata):
+  - Files stored in a "files/" subdirectory using generated unique IDs.
+  - Metadata stored separately in "metadata.db".
+  - Rationale: prevents filename collisions and allows safe handling of same-named files.
 
-## 7. Algorithm explanations (pseudocode / summary)
+- Unique ID = epoch timestamp + random alphanumeric block:
+  - Ensures uniqueness and natural chronological ordering.
+  - Rationale: avoids collisions, allows time-based sorting, no need for external libraries.
 
-Generate ID:
-- timestamp = date +%s
-- random = head of /dev/urandom filtered to alphanum (6 chars)
-- id = "${timestamp}_${random}"
+- Configuration file as key=value text:
+  - MAX_SIZE_MB and RETENTION_DAYS stored in a simple text file.
+  - Rationale: easily editable by user or script; parsed using standard Unix tools (grep, cut, sed).
+
+- Standard Unix tools (file, awk, sort, numfmt, date, grep):
+  - Used instead of custom logic or dependencies.
+  - Rationale: improves portability, maintainability, and efficiency across GNU/Linux systems.
+
+- Auto-cleanup triggered asynchronously after each deletion:
+  - Runs in background to avoid delaying user operations.
+  - Rationale: maintains retention policy automatically while keeping the user experience responsive.
+
+- Interactive mode for non-technical users:
+  - Provides a numbered menu-based interface for all main operations.
+  - Rationale: improves usability and accessibility without needing command-line flags.
+
+- Verbose/debug mode (--verbose):
+  - When enabled, prints internal [DEBUG] messages to stderr for tracing.
+  - Rationale: facilitates troubleshooting without affecting normal program output.
+
+- Color-coded terminal output:
+  - Red for errors, green for success, yellow for warnings/debug.
+  - Rationale: improves user feedback and readability in CLI.
+
+- Retention and quota configuration stored persistently:
+  - Config persists across sessions under ~/.recycle_bin/config.
+  - Rationale: allows permanent customization without code changes.
+
+- Defensive scripting and validation:
+  - Validation for numeric inputs, y/n prompts, and command arguments.
+  - Rationale: prevents invalid operations, reduces risk of data loss or corruption.
+
+
+- Logging to recyclebin.log:
+  - All destructive or major actions are recorded.
+  - Rationale: ensures auditability and traceability of file operations.
+
+
+## 7. Algorithm Explanations (Pseudocode / Summary)
+---------------------------------------------
+
+Initialize Recycle Bin:
+1. Check if ~/.recycle_bin directory exists.
+2. If not, create directory structure (files/, metadata.db, config, log).
+3. Write metadata header and default config values.
+4. Print confirmation message and exit.
+
+Generate Unique ID:
+1. Get current epoch timestamp.
+2. Generate 10 random alphanumeric characters.
+3. Concatenate timestamp + "_" + random string.
+4. Return ID string (safe characters only).
 
 Delete flow:
-1. For each path argument:
-   - refuse paths under RECYCLE_BIN_DIR
-   - check exists, permissions
-   - collect metadata via stat
-   - id = generate_unique_id()
-   - mv path -> "$FILES_DIR/$id"
-   - append CSV line to metadata.db
-   - log to recyclebin.log
-2. After loop, optionally spawn auto_cleanup in background.
+1. For each file argument:
+   a. Validate existence and permissions.
+   b. Skip if inside recycle bin itself.
+   c. Collect metadata (path, owner, size, perms, etc.).
+   d. Generate unique ID for storage.
+   e. Move file to files/<ID>.
+   f. Append metadata entry to metadata.db.
+   g. Log deletion to recyclebin.log.
+2. Run auto_cleanup asynchronously.
+
+List flow:
+1. Read metadata.db, skipping first two header lines.
+2. Apply sorting options (--sort=name|date|size).
+3. Reverse order if --reverse is set.
+4. For each entry, format output (compact or detailed).
+5. Compute total count and size, print summary.
 
 Restore flow:
-1. Validate ID given
-2. Find metadata entry matching ID
-3. Ensure $FILES_DIR/$id exists
-4. Ensure original path exists (mkdir -p if necessary)
-5. If destination exists, choose overwrite / rename / cancel
-6. mv files/id -> destination
-7. chmod perms on destination
-8. Remove metadata entry and log
+1. Validate ID given.
+2. Find metadata entry matching ID (or name pattern).
+3. Ensure $FILES_DIR/$id exists.
+4. Ensure original path exists (mkdir -p if necessary).
+5. If destination exists, choose overwrite / rename / cancel.
+6. mv files/<ID> -> original_path/original_name.
+7. chmod perms on destination.
+8. Remove metadata entry and log restoration.
 
-Search operation:
-- Read metadata rows (skip header)
-- If name_pattern present: case-insensitive substring match on ORIGINAL_NAME
-- If date_from/date_to present: awk filters on DELETION_DATE
-- Output table; log count
+Empty flow:
+1. Read metadata.db (skip headers).
+2. If ID or --pattern given, filter matching entries.
+3. Confirm with user (y/N).
+4. For each matched entry:
+   a. Delete files/<ID>.
+   b. Remove metadata entry.
+   c. Log deletion.
+5. Display summary (count and total size deleted).
 
-Statistics:
-- total_items = number of metadata rows
-- total_size = sum(FILE_SIZE)
-- quota from config MAX_SIZE_MB -> usage percent = total_size / (MAX_SIZE_MB*1024*1024)
-- file vs directory counts via grep on FILE_TYPE
-- newest/oldest via sorting on DELETION_DATE
-- average file size computed from file rows only
+Search flow:
+1. Read metadata.db (skip headers).
+2. If name given, filter by substring (case-insensitive).
+3. If --date-from or --date-to given, apply date filters.
+4. Display formatted results (simple or detailed).
 
-Auto-cleanup:
-- retention_days read from config (default 30)
-- cutoff_date = date -retention_days
-- find rows with DELETION_DATE <= cutoff_date
-- if dry-run: list would-be deletes
-- else: rm -rf files/<ID> and remove rows from metadata
-- log and print summary
+Show statistics flow:
+1. Read all entries from metadata.db.
+2. Compute total size, item count, and type counts.
+3. Read quota and retention from config.
+4. Calculate usage percentage and average file size.
+5. Print summary including oldest and newest items.
+
+Auto-cleanup flow:
+1. Read RETENTION_DAYS from config.
+2. Compute cutoff date (current_date - retention_days).
+3. Load all metadata entries.
+4. Identify entries older than cutoff date.
+5. If --dry-run, list items that would be deleted.
+6. Otherwise, delete files and remove entries from metadata.
+7. Log cleanup actions and print summary.
+
+Preview flow:
+1. Read metadata.db and locate entry by ID.
+2. If entry is a directory, print notice and exit.
+3. If file:
+   a. Detect MIME type using file(1).
+   b. If text, show first 10 lines.
+   c. If binary, show type description and file size.
+4. Print end marker.
+
+Config flow:
+1. If "show" → read config values and print.
+2. If "set quota" or "set retention":
+   a. Validate numeric value > 0.
+   b. Update config with sed (in-place edit).
+   c. Print updated configuration.
+3. Exit with confirmation.
+
+Version flow:
+1. Print version number and environment info.
+2. Display paths: metadata file, files directory, config file.
+3. Exit.
+
+Interactive menu flow:
+1. Display main menu and read user choice.
+2. For each option, call the corresponding function:
+   1) delete_file()
+   2) list_recycled()
+   3) restore_file()
+   4) search_recycled()
+   5) empty_recyclebin()
+   6) show_statistics()
+   7) auto_cleanup()
+   8) preview_file()
+   9) config_command show
+   10) config_command set
+   11) display_help()
+   0) exit
+3. Loop until user chooses Exit.
+
+Debug flow:
+1. Receive message string as input.
+2. If VERBOSE=true, print message to stderr in yellow.
+3. If VERBOSE=false, do nothing.
+
+Main flow:
+1. Parse CLI arguments.
+2. Handle --verbose flag.
+3. Auto-initialize recycle bin if missing.
+4. Match first argument to command (case switch).
+5. Execute corresponding function.
+6. Handle invalid command with error message.
 
 ---
 
 ## 8. Flowcharts (ASCII) — complex ops
 
-Delete (high-level):
-  Start
-    |
-    v
-  For each argument
-    |
-    +--> Is path inside recycle bin? -- Yes --> Log & skip --> (next)
-    |
-    +--> Exists? -- No --> Log error & skip --> (next)
-    |
-    +--> Permission OK? -- No --> Log error & skip --> (next)
-    |
-    v
-  Gather metadata -> generate ID -> move item to files/<ID> -> append metadata -> log -> (next)
-    |
-    v
-  End
+Complex Function Flowcharts
+===========================
 
-Auto-cleanup:
-  Start
-    |
-    v
-  Read RETENTION_DAYS from config
-    |
-    v
-  Compute cutoff date/time
-    |
-    v
-  Read metadata rows (skip headers)
-    |
-    v
-  Filter rows with DELETION_DATE <= cutoff
-    |
-    +--> No matches -> Print "nothing to do" -> End
-    |
-    +--> Matches found
-           |
-           +--> Dry-run? -- Yes --> List matches -> Show summary -> End
-           |
-           v
-         Remove files/<ID> for each match -> Remove metadata rows -> Log actions -> Show summary -> End
-
-Restore (conflict handling):
-  Start
-    |
-    v
-  Lookup ID in metadata
-    |
-    +--> Not found -> Error -> End
-    |
-    v
-  Ensure files/<ID> exists
-    |
-    v
-  Prepare destination path (mkdir -p if needed)
-    |
-    +--> Destination exists? -- Yes --> Prompt: overwrite / rename / cancel
-    |                                 |
-    |                                 +--> Cancel -> Exit
-    |                                 +--> Overwrite/rename -> continue
-    |
-    v
-  Move files/<ID> -> destination -> restore permissions -> remove metadata entry -> Log -> Success -> End
+delete_file(...)
+---------------
+Start
+ ↓
+Check if user passed any files
+ ├─ No → Print error, End
+ └─ Yes
+     ↓
+     For each file:
+       ↓
+       Validate existence and permissions
+       ├─ Invalid → Print error, log, skip
+       └─ Valid
+           ↓
+           Check if file inside recycle bin
+           ├─ Yes → Print error, skip
+           └─ No
+               ↓
+               Collect metadata (name, path, date, size, perms, owner)
+               ↓
+               Generate unique ID
+               ↓
+               Move file → $FILES_DIR/<ID>
+               ├─ Fail → Print error, log, skip
+               └─ Success
+                   ↓
+                   Append row to metadata.db
+                   ↓
+                   Log deletion
+                   ↓
+                   Print confirmation
+ ↓
+Run auto_cleanup in background
+ ↓
+End
 
 
----
+restore_file(<ID|pattern>)
+--------------------------
+Start
+ ↓
+Check if metadata file exists and not empty
+ ├─ Empty → Print warning, End
+ └─ Continue
+     ↓
+     Parse arguments (--id or pattern)
+     ↓
+     Locate matching entry in metadata
+     ├─ None → Print error, End
+     ├─ Multiple → Ask user to choose one
+     └─ Single match
+         ↓
+         Check if file exists in $FILES_DIR/<ID>
+         ├─ Missing → Print error, End
+         └─ Exists
+             ↓
+             Ensure original directory exists (mkdir -p)
+             ↓
+             Move file back to original path
+             ├─ Fail → Print error, End
+             └─ Success
+                 ↓
+                 Restore original permissions
+                 ↓
+                 Remove entry from metadata
+                 ↓
+                 Log restoration
+ ↓
+Print success message
+ ↓
+End
+
+
+empty_recyclebin([ID|--pattern])
+--------------------------------
+Start
+ ↓
+Load metadata entries (skip header)
+ ↓
+Check arguments:
+   - ID → match exact ID
+   - --pattern → match substring
+   - None → select all
+ ↓
+If no matches → Print "Nothing deleted", End
+ ↓
+Ask user confirmation (y/n)
+ ├─ n → Cancel, End
+ └─ y
+     ↓
+     For each matched entry:
+       - Delete file in files/<ID>
+       - Remove metadata row
+       - Log deletion
+     ↓
+     Summarize count + total size removed
+ ↓
+End
+
+
+auto_cleanup([--dry-run])
+-------------------------
+Start
+ ↓
+Read retention days from config (default 30)
+ ↓
+Compute cutoff date (Now - RETENTION_DAYS)
+ ↓
+Read all metadata entries
+ ↓
+Find files older than cutoff
+ ├─ None → Print "No old items", End
+ └─ Found
+     ↓
+     If --dry-run:
+         List items that would be deleted
+     Else:
+         For each old entry:
+             - Delete files/<ID>
+             - Remove metadata row
+             - Log cleanup
+ ↓
+Print summary (# items, total size freed)
+ ↓
+End
+
+
+interactive_menu()
+------------------
+Start
+ ↓
+Clear screen and show header
+ ↓
+Loop:
+   Show numbered menu (1–10, 0 = Exit)
+   ↓
+   Read user choice
+   ↓
+   Match choice:
+     1 → Ask for file paths → delete_file()
+     2 → Ask "Detailed view?" → list_recycled()
+     3 → Ask name/ID → restore_file()
+     4 → Ask search pattern + optional dates → search_recycled()
+     5 → Ask ID/pattern → empty_recyclebin()
+     6 → show_statistics()
+     7 → Ask "Dry-run?" → auto_cleanup()
+     8 → Ask file ID → preview_file()
+     9 → config_command show
+    10 → Ask setting (quota/retention) → config_command set
+    11 → display_help()
+     0 → Exit loop
+     * → Print "Invalid option"
+   ↓
+   Wait for Enter, clear screen, redisplay menu
+ ↓
+Print "Goodbye"
+ ↓
+End
+
 
 ## 9. Known limitations and future improvements
-- Metadata CSV does not escape commas/newlines in filenames. Consider switching to JSON or proper CSV library.
+- Metadata CSV does not escape commas/newlines in filenames. Considering switching to JSON or proper CSV library.
 - Concurrent operations can race when writing metadata file. Add file locking (flock) or atomic updates.
 - No differential deduplication (identical content stored multiple times).
 - No integrity checking (checksums) — consider storing SHA256 for verification.
 - Better UX for interactive restore (non-interactive mode, flags).
 - Add automated unit/integration tests (test_suite.sh placeholder is present).
+- Password protection for sensitive operations and encryption of metadata.
 
 ---
 
@@ -235,11 +699,17 @@ Restore (conflict handling):
 - Config keys: MAX_SIZE_MB, RETENTION_DAYS
 - Log file: $RECYCLE_BIN_DIR/recyclebin.log
 - Metadata header lines must not be removed by hand; if repairing metadata, maintain header lines.
-- To change retention or quota: edit $RECYCLE_BIN_DIR/config
+- To change retention or quota: edit $RECYCLE_BIN_DIR/config or run ./recycle_bin.sh config set retention (DAYS) and ./recycle_bin.sh config set quota (MB)
 
 ---
 
 ## 11. References
-- Unix utilities used: awk, sed, sort, head, file, numfmt, stat, mv, rm
+
+GNU Awk User’s Guide - https://www.gnu.org/software/gawk/manual/ (Last consulted at 31-10-2025);
+GNU Bash Manual - https://www.gnu.org/software/bash/manual/ (Last consulted at 31-10-2025);
+Stack Overflow; 
+Reddit Linux and bash programming subs;
+Linux Man Pages;
+
 
 <!-- End of Technical Documentation -->
